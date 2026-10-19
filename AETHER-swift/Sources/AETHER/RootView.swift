@@ -97,7 +97,7 @@ struct LaunchView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
-                    } else if let message = server.phase.failedMessage {
+                    } else if server.phase.failedMessage != nil {
                         Image(systemName: "exclamationmark.circle.fill")
                             .foregroundStyle(.orange)
                     } else {
