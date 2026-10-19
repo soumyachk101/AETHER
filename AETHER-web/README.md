@@ -18,22 +18,27 @@
 ## Getting Started
 
 ### 1. Installation
+
 ```bash
 npm ci
 ```
 
 ### 2. Environment Configuration
+
 ```bash
 cp .env.example .env
 ```
+
 Fill in your API keys (`OPENAI_API_KEY`, `INTELLIGENCE_API_KEY`, `OWNER_TOKEN`).
 
 ### 3. Run Development Server
+
 ```bash
 npm run dev
 ```
 
 ### 4. Build for Production
+
 ```bash
 npm run build
 npm start
@@ -44,6 +49,7 @@ npm start
 ## Architecture & Integration
 
 `AETHER-web` serves both standalone in modern web browsers and as the headless core embedded inside:
+
 - [`AETHER-swift`](../AETHER-swift): Native macOS WKWebView desktop app with automatic server lifecycle management.
 - [`AETHER-rust`](../AETHER-rust): Native cross-platform desktop shell (Windows, Linux, macOS) using `wry` and `tao`.
 
