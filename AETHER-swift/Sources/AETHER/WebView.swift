@@ -149,6 +149,7 @@ struct AetherWebView: NSViewRepresentable {
             store.lastError = nil
         }
 
+        @available(macOS 12.0, *)
         func webView(
             _ webView: WKWebView,
             requestMediaCapturePermissionFor origin: WKSecurityOrigin,
