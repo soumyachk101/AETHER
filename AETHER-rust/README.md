@@ -44,7 +44,7 @@ Then install Node.js 24+, Rust 1.85+, and build the web app as above
 ## Build and run
 
 ```bash
-cd dibi/AETHER-rust
+cd AETHER-rust
 cargo run              # debug
 cargo build --release  # release
 ./target/release/aether
@@ -114,23 +114,36 @@ the platform script from this crate directory:
 .\scripts\build-windows.ps1
 ```
 
-Each script compiles a release binary and places a portable bundle under
-`dist/<platform>/`. Launch `dist/linux/AETHER` on Linux or
-`dist/windows/AETHER.exe` on Windows. Each bundle includes a README with launch
-and environment-variable instructions. The app still needs access to the
-built OpenDots app root and its `node_modules`; set `OPENDOTS_ROOT` if the root
-is not auto-detected. To distribute it, provide the built web app and
-dependencies alongside the native bundle or make them available at a stable
-path, then configure `OPENDOTS_ROOT` on the target machine.
+Each script compiles the native Rust desktop executable and puts it in the
+portable output directory `dist/linux/` or `dist/windows/`. The preserved
+executable paths are `dist/linux/AETHER` and `dist/windows/AETHER.exe`. Linux
+also includes `AETHER.desktop`, `run.sh`, and a `README.txt`; Windows includes
+a `README.txt`. These are portable bundles, not installers. The executable
+embeds the OS webview and controls the local OpenDots server.
 
-Linux targets need the WebKitGTK 4.1, GTK 3, libsoup 3, and JavaScriptCoreGTK
-4.1 runtime libraries; the build machine also needs their development packages
-listed above. The Linux executable dynamically links these libraries.
-Windows targets need the Microsoft Edge WebView2 Evergreen Runtime and Node.js
-24+ available on `PATH`. Both platforms need the built OpenDots app and Node.js
-24+ to start the bundled local server. No installer or auto-updater is
-provided. Windows signing remains opt-in with `-Sign`; it is skipped with a
-warning if the certificate or `signtool.exe` is unavailable.
+Build OpenDots first by running `npm ci && npm run build` in `AETHER-web/`.
+On the target machine, AETHER needs Node.js 24+ on its `PATH` and access to the
+OpenDots app root containing `package.json`, `node_modules/`, and
+`dist/server/server/index.js`. It starts that server on `127.0.0.1:4310` by
+default and shuts down its child process on exit. Set `OPENDOTS_ROOT` to the
+app root when auto-detection cannot find it. To attach to an already-running
+OpenDots server/API, set `AETHER_URL` (or `OPENDOTS_URL`) to its URL; AETHER
+does not spawn or stop that server. `PORT` or `AETHER_PORT` changes the local
+server port, and `OWNER_TOKEN` is forwarded to the server when needed. The
+bundle does not include Node.js, the OpenDots application, `node_modules`, or
+the built `dist/`; provide them at a stable location on the target machine
+and configure `OPENDOTS_ROOT`.
+
+Linux build prerequisites are Rust 1.85+, `pkg-config`, and the WebKitGTK 4.1,
+GTK 3, libsoup 3, and JavaScriptCoreGTK 4.1 development packages listed above.
+Linux targets need those matching runtime libraries; the executable
+dynamically links them. Windows build prerequisites are Rust 1.85+ with the
+MSVC toolchain and Visual Studio Build Tools with the C++ workload. Windows
+targets need the Microsoft Edge WebView2 Evergreen Runtime. Both target
+platforms need Node.js 24+ and the built OpenDots app described above. No
+installer or auto-updater is provided. Windows signing remains opt-in with
+`-Sign`; it is skipped with a warning if the certificate or `signtool.exe` is
+unavailable.
 
 The Linux bundle includes `AETHER.desktop`; after copying it into
 `~/.local/share/applications/`, set its `Exec` value to the absolute path of

@@ -1,8 +1,13 @@
+import AppKit
 import SwiftUI
 
 @MainActor
 final class OpenDotsClient: ObservableObject {
     @Published var tasks: [[String: Any]] = []
+    @Published var conversations: [[String: Any]] = []
+    @Published var dots: [[String: Any]] = []
+    @Published var selectedConversation = ""
+    @Published var selectedDot = ""
     @Published var loading = false
     @Published var error: String?
     @Published var prompt = ""
@@ -22,6 +27,15 @@ final class OpenDotsClient: ObservableObject {
         do {
             let state = try await request(url: url, path: "/api/state")
             tasks = state["tasks"] as? [[String: Any]] ?? []
+            let workspace = try await request(url: url, path: "/api/workspace")
+            conversations = workspace["conversations"] as? [[String: Any]] ?? []
+            dots = workspace["dots"] as? [[String: Any]] ?? []
+            if !conversations.contains(where: { ($0["id"] as? String) == selectedConversation }) {
+                selectedConversation = conversations.first?["id"] as? String ?? ""
+            }
+            if !dots.contains(where: { ($0["id"] as? String) == selectedDot }) {
+                selectedDot = dots.first?["id"] as? String ?? ""
+            }
             error = nil
         } catch { error = error.localizedDescription }
     }
@@ -33,8 +47,20 @@ final class OpenDotsClient: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            _ = try await request(url: url, path: "/api/tasks", method: "POST", body: ["prompt": text])
+            guard !selectedConversation.isEmpty else { throw ServerError("Create or select a conversation before adding a request.") }
+            _ = try await request(url: url, path: "/api/tasks", method: "POST", body: ["prompt": text, "threadId": selectedConversation])
             prompt = ""
+            await refresh()
+        } catch { error = error.localizedDescription }
+    }
+
+    func createConversation() async {
+        guard let url = server.serverURL, !selectedDot.isEmpty else { error = "Create a Dot in OpenDots before starting a conversation."; return }
+        loading = true
+        defer { loading = false }
+        do {
+            let result = try await request(url: url, path: "/api/conversations", method: "POST", body: ["dotId": selectedDot, "title": "A new thought"])
+            if let id = result["id"] as? String { selectedConversation = id }
             await refresh()
         } catch { error = error.localizedDescription }
     }
@@ -102,7 +128,6 @@ struct RootView: View {
                     .disabled(client.loading)
                 Button("Restart Server") { Task { await server.restart() } }
             }
-            if !client.token.isEmpty { EmptyView() }
             GroupBox("Owner access token") {
                 SecureField("Bearer token (if required)", text: $client.token)
                     .textFieldStyle(.roundedBorder)
@@ -112,17 +137,34 @@ struct RootView: View {
             }
             GroupBox("New request") {
                 VStack(alignment: .trailing, spacing: 8) {
+                    if !conversations.isEmpty {
+                        Picker("Conversation", selection: $client.selectedConversation) {
+                            ForEach(Array(client.conversations.enumerated()), id: \.offset) { _, item in
+                                Text(item["title"] as? String ?? "Conversation").tag(item["id"] as? String ?? "")
+                            }
+                        }
+                    } else if !dots.isEmpty {
+                        Picker("Dot", selection: $client.selectedDot) {
+                            ForEach(Array(client.dots.enumerated()), id: \.offset) { _, item in
+                                Text(item["name"] as? String ?? "Dot").tag(item["id"] as? String ?? "")
+                            }
+                        }
+                        Button("Start Conversation") { Task { await client.createConversation() } }
+                    } else {
+                        Text("Set up a Dot and conversation in OpenDots before adding scheduled requests.")
+                            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     TextEditor(text: $client.prompt).frame(minHeight: 70)
                     Button { Task { await client.createTask() } } label: {
                         if client.loading { ProgressView().controlSize(.small) } else { Label("Add request", systemImage: "paperplane") }
-                    }.buttonStyle(.borderedProminent).disabled(client.loading)
+                    }.buttonStyle(.borderedProminent).disabled(client.loading || client.selectedConversation.isEmpty)
                 }.padding(4)
             }
             Text("Requests").font(.headline)
             if client.loading && client.tasks.isEmpty { ProgressView("Loading OpenDots…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if client.tasks.isEmpty { ContentUnavailableView("No requests yet", systemImage: "tray", description: Text("Add a request above to create a task.")) }
             else {
-                List(client.tasks, id: \.id) { task in
+                List(Array(client.tasks.enumerated()), id: \.offset) { _, task in
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(task["prompt"] as? String ?? "Request").lineLimit(3)

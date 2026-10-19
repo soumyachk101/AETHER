@@ -4,22 +4,34 @@ mod server;
 
 use eframe::egui;
 use serde::Deserialize;
-use std::{time::{Duration, Instant}, thread};
+use std::{cell::RefCell, rc::Rc, time::{Duration, Instant}};
 
 #[derive(Clone, Deserialize)]
 struct Task { id: String, prompt: String, status: String, error: Option<String> }
 #[derive(Deserialize)]
 struct State { tasks: Vec<Task>, mode: String, configured: bool }
+#[derive(Clone, Deserialize)]
+struct Dot { id: String, name: String }
+#[derive(Clone, Deserialize)]
+struct Conversation { id: String, title: String }
+#[derive(Deserialize)]
+struct Workspace { dots: Vec<Dot>, conversations: Vec<Conversation>, setup: Setup }
+#[derive(Deserialize)]
+struct Setup { missing: Vec<String> }
 
 struct Client {
     base_url: String,
     token: String,
     prompt: String,
     state: Option<State>,
+    workspace: Option<Workspace>,
+    selected_thread: Option<String>,
     error: Option<String>,
     startup_error: Option<String>,
     client: reqwest::blocking::Client,
     refresh_at: Instant,
+    supervisor: Rc<RefCell<Option<server::OwnedServer>>>,
+    next_server_check: Instant,
 }
 
 impl Client {
@@ -45,12 +57,28 @@ impl Client {
             }
             Err(error) => self.error = Some(error),
         }
+        match self.request("/api/workspace", reqwest::Method::GET, None) {
+            Ok(response) if response.status().is_success() => match response.json::<Workspace>() {
+                Ok(workspace) => {
+                    if self.selected_thread.as_ref().is_none_or(|id| !workspace.conversations.iter().any(|c| &c.id == id)) {
+                        self.selected_thread = workspace.conversations.first().map(|c| c.id.clone());
+                    }
+                    self.workspace = Some(workspace);
+                }
+                Err(e) => self.error = Some(format!("OpenDots returned an unreadable workspace response: {e}")),
+            },
+            Ok(response) => self.error = Some(format!("Could not load workspace ({}).", response.status())),
+            Err(error) => self.error = Some(error),
+        }
     }
 
     fn action(&mut self, path: &str, body: serde_json::Value) {
         match self.request(path, reqwest::Method::POST, Some(body)) {
             Ok(response) if response.status().is_success() => { self.error = None; self.refresh(); }
-            Ok(response) => self.error = Some(response.json::<serde_json::Value>().ok().and_then(|v| v["error"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("OpenDots request failed ({}).", response.status()))),
+            Ok(response) => {
+                let status = response.status();
+                self.error = Some(response.json::<serde_json::Value>().ok().and_then(|v| v["error"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("OpenDots request failed ({status}).")));
+            }
             Err(error) => self.error = Some(error),
         }
     }
@@ -58,6 +86,10 @@ impl Client {
 
 impl eframe::App for Client {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if Instant::now() >= self.next_server_check {
+            self.next_server_check = Instant::now() + Duration::from_secs(1);
+            if let Some(message) = server::check_exit(&mut self.supervisor.borrow_mut()) { self.error = Some(message); }
+        }
         if self.state.is_none() && self.startup_error.is_none() || Instant::now() >= self.refresh_at {
             self.refresh();
         }
@@ -92,11 +124,30 @@ impl eframe::App for Client {
             ui.label(format!("Mode: {} · {}", state.mode, if state.configured { "configured" } else { "setup needed" }));
             ui.add_space(12.0);
             ui.heading("New task");
+            if let Some(workspace) = self.workspace.clone() {
+                if workspace.setup.missing.is_empty() && !workspace.conversations.is_empty() {
+                    let selected = self.selected_thread.clone().unwrap_or_default();
+                    egui::ComboBox::from_label("Conversation").selected_text(workspace.conversations.iter().find(|c| c.id == selected).map(|c| c.title.as_str()).unwrap_or("Choose a conversation")).show_ui(ui, |ui| {
+                        for conversation in &workspace.conversations {
+                            ui.selectable_value(&mut self.selected_thread, Some(conversation.id.clone()), &conversation.title);
+                        }
+                    });
+                } else if workspace.setup.missing.is_empty() {
+                    ui.label("Create a conversation to enable scheduled tasks.");
+                    if let Some(dot) = workspace.dots.first() {
+                        if ui.button(format!("Create conversation with {}", dot.name)).clicked() {
+                            self.action("/api/conversations", serde_json::json!({"dotId": dot.id, "title":"A new thought"}));
+                        }
+                    }
+                } else {
+                    ui.label(format!("Setup required: {}", workspace.setup.missing.join(", ")));
+                }
+            }
             ui.add(egui::TextEdit::multiline(&mut self.prompt).desired_rows(3).hint_text("What should OpenDots work on?"));
-            let can_create = self.state.as_ref().is_some_and(|s| s.configured);
+            let can_create = self.state.as_ref().is_some_and(|s| s.configured) && self.selected_thread.is_some();
             if ui.add_enabled(can_create && self.prompt.trim().len() >= 3, egui::Button::new("Create task")).clicked() {
                 let prompt = self.prompt.trim().to_owned();
-                self.action("/api/tasks", serde_json::json!({"prompt": prompt}));
+                self.action("/api/tasks", serde_json::json!({"prompt": prompt, "threadId": self.selected_thread}));
                 if self.error.is_none() { self.prompt.clear(); }
             }
             if !can_create { ui.small("Complete OpenDots setup before creating tasks."); }
@@ -129,12 +180,13 @@ fn main() {
         Err(e) => { server::record_failure(&e); ("http://127.0.0.1:4310".to_owned(), None, Some(e)) }
     };
     let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("OpenDots").with_inner_size([1000.0, 760.0]).with_min_inner_size([700.0, 520.0]), ..Default::default() };
-    let mut supervisor = supervisor;
+    let supervisor = Rc::new(RefCell::new(supervisor));
+    let app_supervisor = supervisor.clone();
     let result = eframe::run_native("OpenDots", options, Box::new(move |_cc| Ok(Box::new(Client {
         base_url: url, token: server::owner_token().unwrap_or_default(), prompt: String::new(), state: None,
-        error: None, startup_error: failure, client: reqwest::blocking::Client::new(), refresh_at: Instant::now(),
+        error: None, startup_error: failure, workspace: None, selected_thread: None, client: reqwest::blocking::Client::new(), refresh_at: Instant::now(),
+        supervisor: app_supervisor, next_server_check: Instant::now(),
     }))));
     if let Err(e) = result { server::record_failure(&format!("Native UI startup failed: {e}")); eprintln!("AETHER: native UI startup failed: {e}"); }
-    server::stop(&mut supervisor);
-    thread::sleep(Duration::from_millis(1));
+    server::stop(&mut supervisor.borrow_mut());
 }
