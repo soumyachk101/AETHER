@@ -46,16 +46,42 @@ export class Platform {
       this.requireReady();
       return this.intelligence!;
     });
-    if (!config.intelligenceKey) return;
-    this.intelligence = new CopilotKitIntelligence({
-      apiKey: config.intelligenceKey,
-      apiUrl: config.intelligenceApiUrl,
-      wsUrl: config.intelligenceWsUrl,
-      getLearningContainerId: learningSelector(
-        workspace,
-        config.slackDotId ?? workspace.dots()[0]?.id,
-      ),
-    });
+    if (config.intelligenceKey) {
+      this.intelligence = new CopilotKitIntelligence({
+        apiKey: config.intelligenceKey,
+        apiUrl: config.intelligenceApiUrl,
+        wsUrl: config.intelligenceWsUrl,
+        getLearningContainerId: learningSelector(
+          workspace,
+          config.slackDotId ?? workspace.dots()[0]?.id,
+        ),
+      });
+    } else {
+      const localThreads = new Map<
+        string,
+        { id: string; name?: string; messages: unknown[] }
+      >();
+      this.intelligence = {
+        async createThread(opts: { threadId: string; name?: string }) {
+          localThreads.set(opts.threadId, {
+            id: opts.threadId,
+            name: opts.name,
+            messages: [],
+          });
+          return { id: opts.threadId };
+        },
+        async getOrCreateThread(opts: { threadId?: string; name?: string }) {
+          const id = opts.threadId || randomUUID();
+          if (!localThreads.has(id)) {
+            localThreads.set(id, { id, name: opts.name, messages: [] });
+          }
+          return { id };
+        },
+        async getThreadMessages(opts: { threadId: string }) {
+          return { messages: localThreads.get(opts.threadId)?.messages || [] };
+        },
+      } as unknown as CopilotKitIntelligence;
+    }
     const channels = [];
     if (config.slackChannel && config.slackTeam && config.slackUsers.length) {
       const dotId = config.slackDotId ?? workspace.dots()[0].id;
@@ -120,11 +146,12 @@ export class Platform {
     );
   }
   requireReady() {
-    const missing = this.setup().missing;
-    if (missing.length)
+    if (!this.config.apiKey || !this.config.model) {
+      const missing = this.setup().missing;
       throw new Error(
-        `Setup required: ${missing.join(', ')}. Conversations require CopilotKit Intelligence.`,
+        `Setup required: ${missing.join(', ')}. OpenAI API key and model must be configured in Settings.`,
       );
+    }
   }
   async start() {
     this.setupTelemetry.start();
