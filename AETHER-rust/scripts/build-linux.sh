@@ -49,10 +49,10 @@ stops it on exit. Build OpenDots first (npm ci && npm run build in AETHER-web/).
 The app root must include node_modules/ and dist/server/server/index.js. If it
 is not discoverable beside this bundle, set OPENDOTS_ROOT to its absolute path.
 
-Runtime requirements: WebKitGTK 4.1, GTK 3, libsoup 3, JavaScriptCoreGTK 4.1,
-Node.js 24+ in PATH, and the built OpenDots app with node_modules/. The build
-machine also needs the corresponding development packages, Rust 1.85+, and
-pkg-config (see AETHER-rust/README.md).
+Runtime requirements: a Linux desktop session with X11 or Wayland, working
+OpenGL drivers, Node.js 24+ in PATH, and the built OpenDots app with
+node_modules/. The build machine also needs Rust 1.85+, pkg-config, and the
+X11/Wayland/OpenGL development packages (see AETHER-rust/README.md).
 
 Environment overrides:
   OPENDOTS_ROOT   OpenDots root (package.json, node_modules/, and dist/server/server/index.js)

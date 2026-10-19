@@ -54,10 +54,10 @@ stops it on exit. Build OpenDots first (npm ci && npm run build in AETHER-web/).
 The app root must include node_modules/ and dist/server/server/index.js. If it
 is not discoverable beside this bundle, set OPENDOTS_ROOT to its absolute path.
 
-Runtime requirements: Microsoft Edge WebView2 Evergreen Runtime, Node.js 24+
-in PATH, and the built OpenDots app with node_modules/. The build machine needs
-Rust 1.85+ with the MSVC toolchain and Visual Studio Build Tools with the C++
-workload. See AETHER-rust/README.md for details.
+Runtime requirements: Windows 10/11, Node.js 24+ in PATH, and the built
+OpenDots app with node_modules/. No browser runtime is required. The build
+machine needs Rust 1.85+ with the MSVC toolchain and Visual Studio Build Tools
+with the C++ workload. See AETHER-rust/README.md for details.
 
 Environment overrides:
   OPENDOTS_ROOT   OpenDots root (package.json, node_modules\, and dist\server\server\index.js)

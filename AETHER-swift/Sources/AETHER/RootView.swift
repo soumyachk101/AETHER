@@ -37,13 +37,13 @@ final class OpenDotsClient: ObservableObject {
             if !dots.contains(where: { ($0["id"] as? String) == selectedDot }) {
                 selectedDot = dots.first?["id"] as? String ?? ""
             }
-            error = nil
-        } catch { error = error.localizedDescription }
+            self.error = nil
+        } catch { self.error = error.localizedDescription }
     }
 
     func createConversation() async {
         guard let url = server.serverURL, !selectedDot.isEmpty else {
-            error = "Create a Dot in OpenDots before starting a conversation."
+            self.error = "Create a Dot in OpenDots before starting a conversation."
             return
         }
         loading = true
@@ -57,15 +57,15 @@ final class OpenDotsClient: ObservableObject {
             )
             if let id = result["id"] as? String { selectedConversation = id }
             await refresh()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     func createTask() async {
         guard let url = server.serverURL else { return }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count >= 3 else { error = "Enter a request with at least 3 characters."; return }
+        guard text.count >= 3 else { self.error = "Enter a request with at least 3 characters."; return }
         guard !selectedConversation.isEmpty else {
-            error = "Create or select a conversation before adding a request."
+            self.error = "Create or select a conversation before adding a request."
             return
         }
         loading = true
@@ -74,7 +74,7 @@ final class OpenDotsClient: ObservableObject {
             _ = try await request(url: url, path: "/api/tasks", method: "POST", body: ["prompt": text, "threadId": selectedConversation])
             prompt = ""
             await refresh()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     func act(_ id: String, action: String) async {
@@ -84,7 +84,7 @@ final class OpenDotsClient: ObservableObject {
         do {
             _ = try await request(url: url, path: "/api/tasks/\(id)/actions", method: "POST", body: ["action": action])
             await refresh()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     private func request(url: URL, path: String, method: String = "GET", body: [String: String]? = nil) async throws -> [String: Any] {
@@ -184,7 +184,20 @@ struct RootView: View {
             }
             Text("Requests").font(.headline)
             if client.loading && client.tasks.isEmpty { ProgressView("Loading OpenDots…").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else if client.tasks.isEmpty { ContentUnavailableView("No requests yet", systemImage: "tray", description: Text("Add a request above to create a task.")) }
+            else if client.tasks.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.secondary)
+                    Text("No requests yet")
+                        .font(.headline)
+                    Text("Add a request above to create a task.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(24)
+            }
             else {
                 List(Array(client.tasks.enumerated()), id: \.offset) { _, task in
                     HStack(alignment: .top, spacing: 12) {
