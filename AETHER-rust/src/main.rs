@@ -322,9 +322,11 @@ impl NativeApp {
         for call in self.workspace["calls"].as_array().into_iter().flatten().filter(|call| call["threadId"].as_str()==Some(&self.selected_thread)) { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
         ui.separator();
         ui.heading("Voice call");
+        let paused = self.settings["paused"].as_bool().unwrap_or(false);
+        if paused { ui.label(egui::RichText::new("All Dots are paused. Resume the workspace to start a chat or voice call.").color(egui::Color32::from_rgb(120, 105, 70))); }
         let voice_status = self.voice_state["status"].as_str().unwrap_or("idle");
         if voice_status == "idle" {
-            if ui.add_enabled(!self.selected_thread.is_empty(),egui::Button::new("Start voice call")).clicked() {
+            if ui.add_enabled(!paused && !self.selected_thread.is_empty(),egui::Button::new("Start voice call")).clicked() {
                 let _ = self.voice_commands.send(voice::Command::Start { thread_id:self.selected_thread.clone(), anchor:None });
             }
         } else {
@@ -359,13 +361,13 @@ impl NativeApp {
                 }
             });
             ui.add(egui::TextEdit::multiline(&mut self.chat_draft).desired_rows(2).hint_text("Message your Dot…"));
-            if ui.add_enabled(!self.chat_busy && !self.chat_draft.trim().is_empty(), egui::Button::new(if self.chat_busy { "Thinking…" } else { "Send" })).clicked() { self.send_chat(); }
+            if ui.add_enabled(!paused && !self.chat_busy && !self.chat_draft.trim().is_empty(), egui::Button::new(if self.chat_busy { "Thinking…" } else { "Send" })).clicked() { self.send_chat(); }
         }
     }
 
     fn send_chat(&mut self) {
         let text = self.chat_draft.trim().to_owned();
-        if text.is_empty() || self.chat_busy { return; }
+        if text.is_empty() || self.chat_busy || self.settings["paused"].as_bool().unwrap_or(false) { return; }
         let Some(dot_id) = self.workspace["conversations"].as_array().into_iter().flatten()
             .find(|thread| thread["id"].as_str() == Some(&self.selected_thread))
             .and_then(|thread| thread["dotId"].as_str()).map(str::to_owned) else {
@@ -565,7 +567,7 @@ impl eframe::App for NativeApp {
         self.poll();
         let bg=egui::Color32::from_rgb(255,255,255); let blue=egui::Color32::from_rgb(238,239,247);
         let mut style=(*ctx.style()).clone(); style.visuals.window_fill=bg; style.visuals.panel_fill=bg; style.visuals.widgets.active.bg_fill=blue; style.visuals.selection.bg_fill=blue; style.visuals.widgets.hovered.bg_fill=egui::Color32::from_rgb(245,245,247); style.spacing.item_spacing=egui::vec2(8.0,7.0); style.visuals.widgets.inactive.fg_stroke.color=egui::Color32::from_rgb(76,78,86); ctx.set_style(style);
-        egui::TopBottomPanel::top("topbar").frame(egui::Frame::NONE.fill(egui::Color32::WHITE).inner_margin(egui::Margin::symmetric(22,14))).show(ctx,|ui|{ui.horizontal(|ui|{let crumb=match self.screen{Screen::Spaces=>self.workspace["spaces"].as_array().into_iter().flatten().find(|s|s["id"].as_str()==Some(&self.selected_space)).and_then(|s|s["name"].as_str()).unwrap_or("Spaces"),Screen::Activity=>"Activity",Screen::Memories=>"Memories",Screen::Dots=>"Dots & services",Screen::Settings=>"Settings",Screen::Computer=>"Computer",Screen::Home=>"Home",Screen::Conversations=>self.workspace["dots"].as_array().into_iter().flatten().find(|d|d["id"].as_str()==Some(&self.selected_dot)).and_then(|d|d["name"].as_str()).unwrap_or("Conversations")};ui.label(egui::RichText::new("Workspace").color(egui::Color32::GRAY));ui.label("/");ui.strong(crumb);ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(egui::RichText::new("AETHER  ·  LOCAL").small().color(egui::Color32::GRAY));if ui.button(if self.settings["paused"].as_bool().unwrap_or(false){"▶ Resume all Dots"}else{"Ⅱ Pause all Dots"}).clicked(){let paused=!self.settings["paused"].as_bool().unwrap_or(false);self.settings["paused"]=json!(paused);self.mutate("PATCH","/settings",Some(json!({"paused":paused})));}});});});
+        egui::TopBottomPanel::top("topbar").frame(egui::Frame::NONE.fill(egui::Color32::WHITE).inner_margin(egui::Margin::symmetric(22,14))).show(ctx,|ui|{ui.horizontal(|ui|{let crumb=match self.screen{Screen::Spaces=>self.workspace["spaces"].as_array().into_iter().flatten().find(|s|s["id"].as_str()==Some(&self.selected_space)).and_then(|s|s["name"].as_str()).unwrap_or("Spaces"),Screen::Activity=>"Activity",Screen::Memories=>"Memories",Screen::Dots=>"Dots & services",Screen::Settings=>"Settings",Screen::Computer=>"Computer",Screen::Home=>"Home",Screen::Conversations=>self.workspace["dots"].as_array().into_iter().flatten().find(|d|d["id"].as_str()==Some(&self.selected_dot)).and_then(|d|d["name"].as_str()).unwrap_or("Conversations")};ui.label(egui::RichText::new("Workspace").color(egui::Color32::GRAY));ui.label("/");ui.strong(crumb);ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(egui::RichText::new("AETHER  ·  LOCAL").small().color(egui::Color32::GRAY));if ui.button(if self.settings["paused"].as_bool().unwrap_or(false){"▶ Resume all Dots"}else{"Ⅱ Pause all Dots"}).clicked(){let paused=!self.settings["paused"].as_bool().unwrap_or(false);self.settings["paused"]=json!(paused);if paused{let _=self.voice_commands.send(voice::Command::End);}self.mutate("PATCH","/settings",Some(json!({"paused":paused})));}});});});
         egui::SidePanel::left("rail").exact_width(52.0).frame(egui::Frame::side_top_panel(&ctx.style()).fill(egui::Color32::from_rgb(245,245,245))).show(ctx,|ui| {
             ui.add_space(8.0);
             if ui.add_sized([36.0,38.0],egui::Button::new(egui::RichText::new("o·").size(24.0).strong())).clicked(){self.screen=Screen::Conversations;}

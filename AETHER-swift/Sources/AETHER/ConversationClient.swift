@@ -63,7 +63,7 @@ final class ConversationClient: ObservableObject {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let history = runHistory()
+        let history = runHistory(excludingAssistantId: assistant.id)
         let tools: [[String: Any]] = [
             ["name": "review_space_page", "description": "Present a Markdown draft for human review before saving it into an authorized Space. The user can approve and save, or decline. Do not create the page yourself after this tool: its approved result includes the saved page URL. Call once, then wait for the review result.", "parameters": ["type": "object", "properties": ["title": ["type": "string", "minLength": 1, "maxLength": 160], "content": ["type": "string", "minLength": 1, "maxLength": 20000], "spaceId": ["type": "string", "minLength": 1]], "required": ["title", "content", "spaceId"], "additionalProperties": false]],
             ["name": "request_connection_action", "description": "Ask the owner to approve a connected-service action that changes something (sends, creates, updates, deletes). Use only after a connection tool returned approval_required. Pass its approvalId and a one-sentence summary of the effect. Call once, then wait: the result contains the service response if approved.", "parameters": ["type": "object", "properties": ["approvalId": ["type": "string", "minLength": 1, "maxLength": 64], "summary": ["type": "string", "minLength": 1, "maxLength": 500]], "required": ["approvalId", "summary"], "additionalProperties": false]]
@@ -102,7 +102,10 @@ final class ConversationClient: ObservableObject {
             }
             if !dataLines.isEmpty || !eventType.isEmpty {
                 self.error = "The runtime stream ended before the final event was complete."
-            } else if messages.last(where: { $0.role == "assistant" })?.text.isEmpty == true && error == nil {
+            } else if let latestAssistant = messages.last(where: { $0.role == "assistant" }),
+                      latestAssistant.text.isEmpty,
+                      !messages.contains(where: { $0.role == "tool" && $0.parentAssistantId == latestAssistant.id && $0.tool != nil }),
+                      error == nil {
                 self.error = "The current turn returned no response. Check the runtime connection and retry."
             }
         } catch {
@@ -113,7 +116,7 @@ final class ConversationClient: ObservableObject {
         return error == nil
     }
 
-    private func runHistory() -> [[String: Any]] {
+    private func runHistory(excludingAssistantId: String) -> [[String: Any]] {
         messages.compactMap { message in
             if message.role == "tool" {
                 if message.tool != nil { return nil }
@@ -121,6 +124,7 @@ final class ConversationClient: ObservableObject {
                 return ["id": message.id, "role": "tool", "toolCallId": callId, "content": message.result ?? ""]
             }
             guard message.role == "user" || message.role == "assistant" else { return nil }
+            if message.role == "assistant", message.id == excludingAssistantId { return nil }
             var item: [String: Any] = ["id": message.id, "role": message.role, "content": message.text]
             let calls = messages.filter { $0.role == "tool" && $0.parentAssistantId == message.id && $0.tool != nil }
             if !calls.isEmpty { item["toolCalls"] = calls.compactMap { call in
@@ -183,7 +187,10 @@ final class ConversationClient: ObservableObject {
         case "TOOL_CALL_START":
             guard let id = string("toolCallId"), !id.isEmpty else { return }
             if let i = toolIndex(id) { messages[i].tool = string("toolCallName") ?? messages[i].tool }
-            else { messages.append(ChatMessage(id: UUID().uuidString, role: "tool", text: "", tool: string("toolCallName"), toolCallId: id, parentAssistantId: assistantId)) }
+            else {
+                let parentId = messages.last(where: { $0.role == "assistant" })?.id ?? assistantId
+                messages.append(ChatMessage(id: UUID().uuidString, role: "tool", text: "", tool: string("toolCallName"), toolCallId: id, parentAssistantId: parentId))
+            }
         case "TOOL_CALL_ARGS":
             guard let id = string("toolCallId"), let delta = string("delta"), let i = toolIndex(id) else { return }
             messages[i].rawToolArguments += delta
