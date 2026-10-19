@@ -108,7 +108,9 @@ async fn connect(base: &str, token: Option<&str>, thread_id: &str) -> Result<Voi
 async fn run_call(base: &str, token: Option<&str>, ui: &std::sync::mpsc::Sender<(String, Result<Value, String>)>, commands: &mut mpsc::UnboundedReceiver<Command>, mut call: VoiceCall, anchor: Option<String>) {
     call.anchor = anchor;
     let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<i16>>(8);
-    let AudioInput { _stream: _input_stream, receiver: mut input_receiver } = call.input;
+    let (receiver_sentinel, placeholder) = mpsc::channel(1);
+    let mut input_receiver = std::mem::replace(&mut call.input.receiver, placeholder);
+    drop(receiver_sentinel);
     let forwarding = Arc::new(tokio::sync::Mutex::new(()));
     let sender = audio_tx.clone();
     let reader = tokio::spawn(async move { while let Some(frame) = input_receiver.recv().await { if sender.send(frame).await.is_err() { break; } } });
