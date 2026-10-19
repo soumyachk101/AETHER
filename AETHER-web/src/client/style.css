@@ -1387,6 +1387,33 @@ h3 {
   margin: 10vh auto;
   padding: 25px;
 }
+.unlock-logo-wrapper {
+  margin-bottom: 22px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.unlock-brand-logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  object-fit: cover;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  display: block;
+}
+.unlock-brand-logo.pulse {
+  animation: aether-logo-pulse 2s infinite ease-in-out;
+}
+@keyframes aether-logo-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 14px 35px rgba(114, 133, 213, 0.35);
+  }
+}
 .unlock h1 {
   font-size: 28px;
 }
