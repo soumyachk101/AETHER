@@ -134,7 +134,7 @@ fn wait_for(url: String, mut owned: Option<OwnedServer>) -> Result<(String, Opti
         }
         thread::sleep(Duration::from_millis(250));
     }
-    stop(owned.as_mut());
+    stop(&mut owned);
     Err(format!("Timed out waiting for OpenDots at {url}. See the AETHER server log."))
 }
 
