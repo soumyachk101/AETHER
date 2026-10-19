@@ -5,6 +5,11 @@
 !/.gitignore
 !/README.md
 !/LICENSE
+!/CONTRIBUTING.md
+!/CODE_OF_CONDUCT.md
+!/SECURITY.md
+!/CHANGELOG.md
+!/SUPPORT.md
 !/docs/
 !/auto_sync.sh
 !/.github/
