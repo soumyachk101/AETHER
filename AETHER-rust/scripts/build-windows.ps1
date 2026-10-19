@@ -38,6 +38,9 @@ try {
 finally { Pop-Location }
 
 Write-Host "==> Building dibi-aether (release)"
+if (-not $env:CMAKE_POLICY_VERSION_MINIMUM) {
+    $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+}
 & cargo build --release
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build --release failed with exit code $LASTEXITCODE."
