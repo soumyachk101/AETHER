@@ -158,6 +158,39 @@ struct LaunchView: View {
 }
 
 @MainActor
+func loadAetherDockIcon() -> NSImage? {
+    #if SWIFT_PACKAGE
+    if let url = Bundle.module.url(forResource: "dock_icon", withExtension: "png"),
+       let image = NSImage(contentsOf: url) {
+        return image
+    }
+    #endif
+
+    if let url = Bundle.main.url(forResource: "dock_icon", withExtension: "png"),
+       let image = NSImage(contentsOf: url) {
+        return image
+    }
+    if let image = NSImage(named: "dock_icon") {
+        return image
+    }
+
+    if let root = ServerController.locateRoot() {
+        let parent = root.deletingLastPathComponent()
+        let paths = [
+            parent.appendingPathComponent("AETHER-swift/Sources/AETHER/Resources/dock_icon.png"),
+            root.appendingPathComponent("Sources/AETHER/Resources/dock_icon.png")
+        ]
+        for path in paths {
+            if FileManager.default.fileExists(atPath: path.path),
+               let image = NSImage(contentsOf: path) {
+                return image
+            }
+        }
+    }
+    return nil
+}
+
+@MainActor
 func loadAetherLogo() -> NSImage? {
     #if SWIFT_PACKAGE
     if let url = Bundle.module.url(forResource: "logo", withExtension: "png"),
