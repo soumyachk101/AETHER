@@ -108,6 +108,8 @@ final class ServerController: ObservableObject {
     }
 
     var port: Int {
+        let savedAether = UserDefaults.standard.integer(forKey: "aetherPort")
+        if savedAether > 0 { return savedAether }
         let saved = UserDefaults.standard.integer(forKey: "openDotsPort")
         return saved > 0 ? saved : 4310
     }
@@ -417,10 +419,11 @@ final class ServerController: ObservableObject {
         var candidates: [URL] = []
         let environment = ProcessInfo.processInfo.environment
 
-        if let raw = environment["OPENDOTS_ROOT"], !raw.isEmpty {
+        if let raw = environment["AETHER_ROOT"] ?? environment["OPENDOTS_ROOT"], !raw.isEmpty {
             candidates.append(URL(fileURLWithPath: raw, isDirectory: true))
         }
-        if let saved = UserDefaults.standard.string(forKey: "openDotsRoot"),
+        if let saved = UserDefaults.standard.string(forKey: "aetherRoot")
+            ?? UserDefaults.standard.string(forKey: "openDotsRoot"),
            !saved.isEmpty {
             candidates.append(URL(fileURLWithPath: saved, isDirectory: true))
         }
