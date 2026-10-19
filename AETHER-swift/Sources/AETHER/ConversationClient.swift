@@ -24,14 +24,29 @@ final class ConversationClient: ObservableObject {
     @Published var sending = false
     @Published var error: String?
 
-    func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard !sending else { return }
-        messages.append(ChatMessage(role: "user", text: text))
+    func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async -> Bool {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !sending else { return false }
+        sending = true
+        error = nil
+        defer { sending = false }
+
+        let pageContext: [String: Any]
+        do {
+            pageContext = try await api("/api/conversations/\(threadId)/page-context", baseURL: baseURL, token: token)
+        } catch {
+            self.error = "Conversation context could not load. Retry before sending your message."
+            return false
+        }
+        var content = text
+        if let pageId = pageContext["id"] as? String,
+           let spaceId = pageContext["spaceId"] as? String,
+           let title = pageContext["title"] as? String {
+            let cleanTitle = title.filter { !"[]\\\r\n".contains($0) }
+            content = "From [\(cleanTitle)](/#/spaces/\(spaceId)/pages/\(pageId)):\n\n\(text)"
+        }
+        messages.append(ChatMessage(role: "user", text: content))
         let assistant = ChatMessage(role: "assistant", text: "")
         messages.append(assistant)
-        sending = true; error = nil
-        defer { sending = false }
         let url = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("copilotkit")
@@ -86,6 +101,7 @@ final class ConversationClient: ObservableObject {
                 self.error = error.localizedDescription
             }
         }
+        return error == nil
     }
 
     private func consume(eventType: String, dataLines: [String], assistantId: String) {

@@ -64,6 +64,13 @@ final class VoiceClient: NSObject, ObservableObject {
                                 let response = try await self.api("/api/voice/calls", method: "POST", body: ["threadId": threadId, "sdp": offer.sdp])
                                 guard let id = response["id"] as? String, let sdp = response["sdp"] as? String else { throw URLError(.cannotParseResponse) }
                                 self.callId = id
+                                guard self.status == "connecting", !self.ending else {
+                                    do { try await self.finishCall(id: id) }
+                                    catch { self.error = "Call ended, but its receipt could not be saved: \(error.localizedDescription)" }
+                                    self.cleanup()
+                                    continuation.resume(throwing: CancellationError())
+                                    return
+                                }
                                 pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { remoteError in
                                     if let remoteError { continuation.resume(throwing: remoteError) }
                                     else { continuation.resume() }
@@ -77,9 +84,11 @@ final class VoiceClient: NSObject, ObservableObject {
             pollTask = Task { await pollStatus() }
             limitTask = Task { try? await Task.sleep(for: .seconds(900)); if !Task.isCancelled { await end() } }
         } catch {
-            self.error = error.localizedDescription
-            if let callId { try? await finishCall(id: callId) }
-            cleanup(); status = "idle"
+            if status == "connecting", !ending {
+                self.error = error.localizedDescription
+                if let callId { try? await finishCall(id: callId) }
+            }
+            cleanup(); status = "idle"; ending = false
         }
     }
 
