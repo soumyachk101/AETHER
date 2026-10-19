@@ -31,7 +31,10 @@ export function detectCodexCli(): CodexCliStatus {
 
   let binaryPath: string | null = null;
   try {
-    const which = execSync('which codex', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const which = execSync('which codex', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
     if (which) binaryPath = which;
   } catch {
     // Ignore error if not found in default PATH
@@ -80,7 +83,11 @@ export function detectCodexCli(): CodexCliStatus {
 
   if (authData) {
     const rawApiKey = authData.OPENAI_API_KEY;
-    if (rawApiKey && typeof rawApiKey === 'string' && rawApiKey.trim().length > 0) {
+    if (
+      rawApiKey &&
+      typeof rawApiKey === 'string' &&
+      rawApiKey.trim().length > 0
+    ) {
       hasApiKey = true;
       loggedIn = true;
       apiKeyPreview = `${rawApiKey.slice(0, 7)}...${rawApiKey.slice(-4)}`;
@@ -111,7 +118,10 @@ export function detectCodexCli(): CodexCliStatus {
           if (authClaim) {
             const rawPlan = authClaim.chatgpt_plan_type;
             if (rawPlan) {
-              plan = rawPlan === 'go' ? 'ChatGPT Go' : rawPlan[0].toUpperCase() + rawPlan.slice(1);
+              plan =
+                rawPlan === 'go'
+                  ? 'ChatGPT Go'
+                  : rawPlan[0].toUpperCase() + rawPlan.slice(1);
             }
             accountId = authClaim.chatgpt_account_id || null;
             if (authClaim.organizations && authClaim.organizations[0]?.title) {
@@ -137,6 +147,8 @@ export function detectCodexCli(): CodexCliStatus {
     hasApiKey,
     apiKeyPreview,
     hasAccessToken,
-    authMode: (authData?.auth_mode as string) || (hasApiKey ? 'api_key' : hasAccessToken ? 'chatgpt' : null),
+    authMode:
+      (authData?.auth_mode as string) ||
+      (hasApiKey ? 'api_key' : hasAccessToken ? 'chatgpt' : null),
   };
 }
