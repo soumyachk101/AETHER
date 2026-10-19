@@ -27,10 +27,9 @@ fn log(message: &str) {
 pub fn record_failure(message: &str) { log(&format!("Startup failure: {message}")); }
 
 fn valid_root(path: &Path) -> bool {
-    let Ok(package) = fs::read_to_string(path.join("package.json")) else { return false };
-    let Ok(package) = serde_json::from_str::<serde_json::Value>(&package) else { return false };
-    package.get("name").and_then(serde_json::Value::as_str) == Some("opendots")
-        && path.join("src/server/index.ts").is_file()
+    let package = fs::read_to_string(path.join("package.json")).unwrap_or_default();
+    (package.contains("\"name\": \"opendots\"") || package.contains("\"name\":\"opendots\""))
+        && (path.join("src/server/index.ts").is_file() || path.join("dist/server/server/index.js").is_file())
 }
 
 fn resolve_root() -> Result<PathBuf, String> {
