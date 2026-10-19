@@ -41,7 +41,7 @@ final class ConversationClient: ObservableObject {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let history = messages.dropLast().map { ["id": $0.id, "role": $0.role, "content": $0.text] as [String: Any] }
+        let history = messages.dropLast().filter { $0.role == "user" || $0.role == "assistant" }.map { ["id": $0.id, "role": $0.role, "content": $0.text] as [String: Any] }
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "threadId": threadId,
             "runId": UUID().uuidString,

@@ -113,6 +113,15 @@ impl NativeApp {
             match result {
                 Ok(value) => {
                     self.error = None;
+                    if let Some(call_id) = tag.strip_prefix("page-review:") {
+                        if let Some(call) = self.chat_tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == Some(call_id)) { call["result"] = json!(format!("Page saved: {}", value["title"].as_str().unwrap_or("page"))); }
+                        self.refresh();
+                        continue;
+                    }
+                    if let Some(call_id) = tag.strip_prefix("connection-run:") {
+                        if let Some(call) = self.chat_tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == Some(call_id)) { call["result"] = value.clone(); }
+                        continue;
+                    }
                     match tag.as_str() {
                         "refresh" => { self.settings = value["settings"].clone(); self.settings_name = self.settings["name"].as_str().unwrap_or("").to_owned(); self.data = value; }
                         "workspace" => {
@@ -138,7 +147,7 @@ impl NativeApp {
                         "computer-action" => { self.computer_text = value.to_string(); if value["base64"].is_string() { self.computer_screen = value; } },
                         "chat-tool" => { self.chat_tools.push(value); }
                         "chat-tool-result-event" | "chat-tool-action-result" => {
-                            if let Some(call) = self.chat_tools.as_array_mut().and_then(|tools| tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == value["toolCallId"].as_str())) {
+                            if let Some(call) = self.chat_tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == value["toolCallId"].as_str()) {
                                 call["result"] = value["content"].clone().as_str().map(|s| json!(s)).unwrap_or_else(|| value["result"].clone());
                             }
                         }
@@ -156,10 +165,7 @@ impl NativeApp {
                         "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.chat_tools.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
-                        "chat-tool-result" => {
-                            if let Some(call) = self.chat_tools.as_array_mut().and_then(|tools| tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == value["toolCallId"].as_str())) { call["result"] = json!(format!("Page saved: {}", value["title"].as_str().unwrap_or("page"))); }
-                            self.refresh();
-                        }
+                        "chat-tool-result" => { self.chat_messages.push(("assistant".into(),format!("Page review result: {}",value))); self.refresh(); }
                         "connection-approval" => self.chat_messages.push(("assistant".into(),format!("Approval details: {}",value))),
                         "connection-run" => self.chat_messages.push(("assistant".into(),format!("Connected service result: {}",value))),
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
@@ -271,8 +277,8 @@ impl NativeApp {
             if !self.page_context.is_null(){ui.label(format!("Working on page: {}",self.page_context["title"].as_str().unwrap_or("Page")));}
             ui.horizontal(|ui|{ui.text_edit_singleline(&mut self.conversation_title);if ui.add_enabled(!self.chat_busy,egui::Button::new("Save conversation as page")).clicked(){self.request("conversation-page","POST",&format!("/conversations/{}/page",self.selected_thread),Some(json!({"title":self.conversation_title,"parentId":Value::Null})));}});
             for tool in self.chat_tools.clone() { ui.group(|ui| { let name=tool["name"].as_str().unwrap_or("Tool"); let call_id=tool["toolCallId"].as_str().unwrap_or(""); let args=&tool["args"]; ui.strong(name); ui.label(args.to_string()); if let Some(result)=tool["result"].as_str(){ui.label(result);}
-                if name=="review_space_page" { ui.label("Page draft review"); if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and save page")).clicked(){ self.request("chat-tool-result","POST",&format!("/conversations/{}/reviewed-page",self.selected_thread),Some(json!({"toolCallId":call_id,"title":args["title"],"content":args["content"],"spaceId":args["spaceId"]}))); } if tool["result"].is_null() && ui.button("Decline draft").clicked(){ if let Some(call)=self.chat_tools.as_array_mut().and_then(|tools|tools.iter_mut().find(|item|item["toolCallId"].as_str()==Some(call_id))){call["result"]=json!("Declined by owner");} } }
-                if name=="request_connection_action" { let approval=args["approvalId"].as_str().unwrap_or(""); if ui.button("Review connected action").clicked(){self.request("connection-approval","GET",&format!("/conversations/{}/connection-approvals/{}",self.selected_thread,approval),None);} if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and run")).clicked(){self.request("connection-run","POST",&format!("/conversations/{}/connection-actions",self.selected_thread),Some(json!({"toolCallId":call_id,"approvalId":approval})));} }
+                if name=="review_space_page" { ui.label("Page draft review"); if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and save page")).clicked(){ self.request(&format!("page-review:{call_id}"),"POST",&format!("/conversations/{}/reviewed-page",self.selected_thread),Some(json!({"toolCallId":call_id,"title":args["title"],"content":args["content"],"spaceId":args["spaceId"]}))); } if tool["result"].is_null() && ui.button("Decline draft").clicked(){ if let Some(call)=self.chat_tools.iter_mut().find(|item|item["toolCallId"].as_str()==Some(call_id)){call["result"]=json!("Declined by owner");} } }
+                if name=="request_connection_action" { let approval=args["approvalId"].as_str().unwrap_or(""); if ui.button("Review connected action").clicked(){self.request("connection-approval","GET",&format!("/conversations/{}/connection-approvals/{}",self.selected_thread,approval),None);} if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and run")).clicked(){self.request(&format!("connection-run:{call_id}"),"POST",&format!("/conversations/{}/connection-actions",self.selected_thread),Some(json!({"toolCallId":call_id,"approvalId":approval})));} }
             }); }
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 for (role, text) in &self.chat_messages {
