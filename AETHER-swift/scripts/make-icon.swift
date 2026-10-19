@@ -9,32 +9,23 @@ try? FileManager.default.createDirectory(
     withIntermediateDirectories: true
 )
 
-func starPath(center: NSPoint, radius: CGFloat) -> NSBezierPath {
-    let path = NSBezierPath()
-    let waist = radius * 0.16
-    path.move(to: NSPoint(x: center.x, y: center.y + radius))
-    path.curve(
-        to: NSPoint(x: center.x + radius, y: center.y),
-        controlPoint1: NSPoint(x: center.x + waist, y: center.y + waist),
-        controlPoint2: NSPoint(x: center.x + waist, y: center.y + waist)
-    )
-    path.curve(
-        to: NSPoint(x: center.x, y: center.y - radius),
-        controlPoint1: NSPoint(x: center.x + waist, y: center.y - waist),
-        controlPoint2: NSPoint(x: center.x + waist, y: center.y - waist)
-    )
-    path.curve(
-        to: NSPoint(x: center.x - radius, y: center.y),
-        controlPoint1: NSPoint(x: center.x - waist, y: center.y - waist),
-        controlPoint2: NSPoint(x: center.x - waist, y: center.y - waist)
-    )
-    path.curve(
-        to: NSPoint(x: center.x, y: center.y + radius),
-        controlPoint1: NSPoint(x: center.x - waist, y: center.y + waist),
-        controlPoint2: NSPoint(x: center.x - waist, y: center.y + waist)
-    )
-    path.close()
-    return path
+let scriptDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let swiftDir = scriptDir.deletingLastPathComponent()
+let repoDir = swiftDir.deletingLastPathComponent()
+
+let sourceCandidates = [
+    repoDir.appendingPathComponent("image.png"),
+    swiftDir.appendingPathComponent("Sources/AETHER/Resources/logo.png"),
+    repoDir.appendingPathComponent("AETHER-web/public/logo.png")
+]
+
+var baseSourceImage: NSImage?
+for url in sourceCandidates {
+    if FileManager.default.fileExists(atPath: url.path),
+       let img = NSImage(contentsOf: url) {
+        baseSourceImage = img
+        break
+    }
 }
 
 func render(size: Int) -> Data? {
@@ -42,32 +33,27 @@ func render(size: Int) -> Data? {
     let image = NSImage(size: NSSize(width: dim, height: dim))
     image.lockFocus()
 
-    let inset = dim * 0.055
-    let rect = NSRect(x: inset, y: inset, width: dim - inset * 2, height: dim - inset * 2)
-    let radius = dim * 0.225
-    let plate = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+    let rect = NSRect(x: 0, y: 0, width: dim, height: dim)
 
-    let gradient = NSGradient(
-        colors: [
-            NSColor(srgbRed: 0.45, green: 0.36, blue: 1.0, alpha: 1),
-            NSColor(srgbRed: 0.24, green: 0.78, blue: 0.94, alpha: 1)
-        ]
-    )
-    gradient?.draw(in: plate, angle: -55)
-
-    NSColor.white.withAlphaComponent(0.18).setStroke()
-    plate.lineWidth = max(1, dim * 0.012)
-    plate.stroke()
-
-    let center = NSPoint(x: dim / 2, y: dim / 2)
-    NSColor.white.setFill()
-    starPath(center: center, radius: dim * 0.235).fill()
-
-    NSColor.white.withAlphaComponent(0.92).setFill()
-    starPath(
-        center: NSPoint(x: dim * 0.725, y: dim * 0.71),
-        radius: dim * 0.072
-    ).fill()
+    if let source = baseSourceImage {
+        NSGraphicsContext.current?.imageInterpolation = .high
+        source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+    } else {
+        let inset = dim * 0.055
+        let plateRect = NSRect(x: inset, y: inset, width: dim - inset * 2, height: dim - inset * 2)
+        let radius = dim * 0.225
+        let plate = NSBezierPath(roundedRect: plateRect, xRadius: radius, yRadius: radius)
+        let gradient = NSGradient(
+            colors: [
+                NSColor(srgbRed: 0.45, green: 0.36, blue: 1.0, alpha: 1),
+                NSColor(srgbRed: 0.24, green: 0.78, blue: 0.94, alpha: 1)
+            ]
+        )
+        gradient?.draw(in: plate, angle: -55)
+        NSColor.white.withAlphaComponent(0.18).setStroke()
+        plate.lineWidth = max(1, dim * 0.012)
+        plate.stroke()
+    }
 
     image.unlockFocus()
 
