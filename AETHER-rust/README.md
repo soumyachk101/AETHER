@@ -8,9 +8,8 @@ The crate is named `dibi-aether`; the binary is `aether`. Platform packaging ren
 
 ### Windows
 
-- Windows 10/11 with the Rust MSVC toolchain and Visual Studio Build Tools with the C++ workload.
+- Windows 10/11, Rust 1.85+ with the MSVC toolchain, and Visual Studio Build Tools with the C++ workload.
 - Node.js 24 or newer.
-- Rust 1.85+ with the MSVC toolchain (`rustup default stable-msvc`) and Visual Studio Build Tools with the C++ workload.
 - The web app must be installed and built (run in the OpenDots app directory, i.e. `AETHER-web/`):
 
   ```powershell
@@ -46,14 +45,14 @@ cargo build --release  # release
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OPENDOTS_ROOT` | auto-detected | Absolute path to the OpenDots app root (contains `package.json` with `name: opendots` and `src/server/index.ts`). |
-| `AETHER_URL` / `OPENDOTS_URL` | `http://127.0.0.1:<port>/` | Attach to an already-running server instead of starting one. No child process is spawned or killed. |
+| `AETHER_URL` / `OPENDOTS_URL` | `http://127.0.0.1:<port>/` | Use an already-running server without spawning or stopping its process. |
 | `PORT` / `AETHER_PORT` | `4310` | Port used for the embedded server and URL. `AETHER_PORT` is the AETHER-specific override. |
 | `OWNER_TOKEN` | unset | Forwarded to the server environment when the instance requires an owner token. |
 
 ## How the server is supervised
 
 1. Resolve the project root and verify it contains the built entry point `dist/server/server/index.js` and `node_modules/`.
-2. If `AETHER_URL`/`OPENDOTS_URL` is set, poll that URL and attach read-only.
+2. If `AETHER_URL`/`OPENDOTS_URL` is set, poll that URL and use its API without taking ownership of its process.
 3. Otherwise spawn `node --env-file-if-exists=.env dist/server/server/index.js` with `HOST=127.0.0.1` and `PORT=<port>`, streaming stdout/stderr into the log.
 4. Poll the URL until it answers (HTTP responses below 500 count as ready).
 5. On window close or app exit, terminate the child process. A server that dies unexpectedly is reported in the UI and the log.
