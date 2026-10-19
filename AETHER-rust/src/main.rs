@@ -125,10 +125,22 @@ impl NativeApp {
     fn select_thread(&mut self, id: &str, dot_id: &str) {
         self.selected_thread=id.to_owned(); self.selected_dot=dot_id.to_owned(); self.chat_thread=id.to_owned();
         self.chat_messages.clear(); self.chat_tools.clear(); self.page_context=Value::Null; self.data["capture"]=Value::Null;
-        self.request("capture","GET",&format!("/conversations/{id}/capture"),None);
-        self.request("page-context","GET",&format!("/conversations/{id}/page-context"),None);
-        self.request("chat-history","GET",&format!("/copilotkit/threads/{id}/messages?agentId={dot_id}"),None);
+        self.request(&format!("capture:{id}"),"GET",&format!("/conversations/{id}/capture"),None);
+        self.request(&format!("page-context:{id}"),"GET",&format!("/conversations/{id}/page-context"),None);
+        self.request(&format!("chat-history:{id}"),"GET",&format!("/copilotkit/threads/{id}/messages?agentId={dot_id}"),None);
         self.refresh_dot_tools();
+    }
+
+    fn apply_chat_history(&mut self, value: Value) {
+        let messages = value["messages"].as_array().or_else(|| value.as_array());
+        if let Some(messages) = messages {
+            self.chat_messages = messages.iter().filter_map(|message| {
+                let role = message["role"].as_str()?;
+                if role != "user" && role != "assistant" { return None; }
+                let content = message["content"].as_str().map(str::to_owned).or_else(|| message["content"].as_array().map(|parts| parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("")))?;
+                (!content.trim().is_empty()).then(|| (role.to_owned(), content))
+            }).collect();
+        }
     }
 
     fn poll(&mut self) {
@@ -139,6 +151,18 @@ impl NativeApp {
                     if let Some(space_id) = tag.strip_prefix("pages:") {
                         self.pages_by_space.insert(space_id.to_owned(), value.clone());
                         if self.selected_space == space_id { self.pages = value; }
+                        continue;
+                    }
+                    if let Some(thread_id) = tag.strip_prefix("capture:") {
+                        if self.selected_thread == thread_id { self.data["capture"] = value; }
+                        continue;
+                    }
+                    if let Some(thread_id) = tag.strip_prefix("page-context:") {
+                        if self.selected_thread == thread_id { self.page_context = value; }
+                        continue;
+                    }
+                    if let Some(thread_id) = tag.strip_prefix("chat-history:") {
+                        if self.selected_thread == thread_id { self.apply_chat_history(value); }
                         continue;
                     }
                     if let Some(call_id) = tag.strip_prefix("page-review:") {
@@ -183,25 +207,12 @@ impl NativeApp {
                         "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
                         "task-detail" => self.selected_task = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
-                        "capture" => self.data["capture"] = value,
                         "voice" => self.voice_state = value,
-                        "page-context" => self.page_context=value,
-                        "chat-history" => {
-                            let messages = value["messages"].as_array().or_else(|| value.as_array());
-                            if let Some(messages) = messages {
-                                self.chat_messages = messages.iter().filter_map(|message| {
-                                    let role = message["role"].as_str()?;
-                                    if role != "user" && role != "assistant" { return None; }
-                                    let content = message["content"].as_str().map(str::to_owned).or_else(|| message["content"].as_array().map(|parts| parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("")))?;
-                                    (!content.trim().is_empty()).then(|| (role.to_owned(), content))
-                                }).collect();
-                            }
-                        }
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
-                        "page-conversation" => { self.selected_thread=value["id"].as_str().unwrap_or("").into(); self.selected_dot=value["dotId"].as_str().unwrap_or(&self.selected_dot).into(); self.screen=Screen::Conversations; self.chat_messages.clear(); self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.refresh(); }
+                        "page-conversation" => { let thread_id=value["id"].as_str().unwrap_or("").to_owned(); let dot_id=value["dotId"].as_str().unwrap_or(&self.selected_dot).to_owned(); self.select_thread(&thread_id,&dot_id); self.screen=Screen::Conversations; self.refresh(); }
                         "conversation-page" => { self.selected_space=value["spaceId"].as_str().unwrap_or("").into(); self.selected_page=value["id"].as_str().unwrap_or("").into(); self.screen=Screen::Spaces; self.request("page-read","GET",&format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),None); self.refresh_pages(); }
-                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.chat_tools.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
+                        "conversation-created" => { let thread_id=value["id"].as_str().unwrap_or("").to_owned(); let dot_id=value["dotId"].as_str().unwrap_or(&self.selected_dot).to_owned(); self.select_thread(&thread_id,&dot_id); self.refresh(); }
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
                         "chat-tool-result" => { self.chat_messages.push(("assistant".into(),format!("Page review result: {}",value))); self.refresh(); }
@@ -215,7 +226,7 @@ impl NativeApp {
                 Err(message) => { if tag.starts_with("chat-") { self.chat_busy = false; } self.error = Some(message); }
             }
         }
-        if self.last_refresh.elapsed() > Duration::from_secs(8) { self.refresh(); if !self.selected_thread.is_empty(){self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None);} self.last_refresh = Instant::now(); }
+        if self.last_refresh.elapsed() > Duration::from_secs(8) { self.refresh(); if !self.selected_thread.is_empty(){let id=self.selected_thread.clone();self.request(&format!("capture:{id}"),"GET",&format!("/conversations/{id}/capture"),None);} self.last_refresh = Instant::now(); }
         if let Ok(mut child) = self.server.lock() { if let Some(message) = server::check_exit(&mut child) { self.server_error = Some(message); } }
     }
 
