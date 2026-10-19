@@ -49,6 +49,7 @@ struct RootView: View {
     @EnvironmentObject private var server: ServerController
     @StateObject private var data = Workspace()
     @StateObject private var chat = ConversationClient()
+    @StateObject private var voice = VoiceClient()
     @State private var section: WorkspaceSection = .home
     @State private var selectedThread = ""
     @State private var selectedDot = ""
@@ -211,6 +212,7 @@ struct RootView: View {
                 if selectedThread.isEmpty { emptyState("Choose a conversation", icon: "bubble.left.and.bubble.right", detail: "Start a conversation with one of your Dots.") }
                 else {
                     if chat.messages.isEmpty { emptyState("No messages in this session", icon: "text.bubble", detail: "This native client keeps the current session in memory. The server does not expose conversation transcript history.") }
+                    voiceControls
                     ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in
                         if let tool = m.tool { toolCard(m, tool: tool) }
                         else { HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } }
@@ -222,6 +224,24 @@ struct RootView: View {
         }
     }
     private func send() { let text = composer; composer = ""; Task { if let base = data.base { await chat.send(text, dotId: selectedDot, threadId: selectedThread, baseURL: base, token: data.token) } } }
+    private var voiceControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button(voice.status == "idle" ? "Start voice call" : voice.status == "ending" ? "Ending…" : "End call") {
+                    if voice.status == "idle" { Task { if let base = data.base { await voice.start(threadId: selectedThread, baseURL: base, token: data.token, anchorMessageId: nil) } } }
+                    else { Task { await voice.end() } }
+                }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty || voice.status == "ending")
+                if voice.status != "idle" {
+                    Button(voice.muted ? "Unmute mic" : "Mute mic", systemImage: voice.muted ? "mic.slash" : "mic") { voice.toggleMute() }
+                    Button(voice.speakerMuted ? "Enable speaker" : "Mute speaker", systemImage: voice.speakerMuted ? "speaker.slash" : "speaker.wave.2") { voice.toggleSpeaker() }
+                    Text(voice.status == "active" ? "\(voice.phase.capitalized) · \(voice.elapsed / 60):\(String(format: "%02d", voice.elapsed % 60))" : "Connecting…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !voice.userCaption.isEmpty { Text("You: \(voice.userCaption)").font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            if !voice.caption.isEmpty { Text("Dot: \(voice.caption)").font(.callout).lineLimit(3) }
+            if let error = voice.error { Text(error).font(.caption).foregroundStyle(.red) }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(.blue.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+    }
     private func createConversation() async { let dots = data.rows("dots", from: data.workspace); guard let dot = dots.first else { data.alert = "Create a Dot before starting a conversation."; return }; do { let result = try await data.send("/api/conversations", body: ["dotId": data.str(dot,"id"), "title":"A new thought"]); selectedThread = data.str(result,"id"); selectedDot = data.str(result,"dotId"); await data.refresh() } catch { data.alert = error.localizedDescription } }
     private var pages: some View {
         VStack(alignment: .leading, spacing: 12) {

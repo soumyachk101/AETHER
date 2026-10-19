@@ -10,10 +10,14 @@ let package = Package(
     products: [
         .executable(name: "AETHER", targets: ["AETHER"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/stasel/WebRTC.git", from: "153.0.0")
+    ],
     targets: [
         .executableTarget(
             name: "AETHER",
-            path: "Sources/AETHER"
+            path: "Sources/AETHER",
+            dependencies: [.product(name: "WebRTC", package: "WebRTC")]
         )
     ]
 )
