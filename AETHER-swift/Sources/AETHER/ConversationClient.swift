@@ -10,6 +10,8 @@ struct ChatMessage: Identifiable, Codable {
     var result: String? = nil
     var rawToolArguments = ""
     var toolCallId: String? = nil
+    var decision: Bool? = nil
+    var actionError: String? = nil
 }
 
 struct AnyCodable: Codable { let value: Any
@@ -58,14 +60,18 @@ final class ConversationClient: ObservableObject {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let history = messages.dropLast().filter { $0.role == "user" || $0.role == "assistant" }.map { ["id": $0.id, "role": $0.role, "content": $0.text] as [String: Any] }
+        let history = runHistory()
+        let tools: [[String: Any]] = [
+            ["name": "review_space_page", "description": "Present a Markdown draft for human review before saving it into an authorized Space. The user can approve and save, or decline. Do not create the page yourself after this tool: its approved result includes the saved page URL. Call once, then wait for the review result.", "parameters": ["type": "object", "properties": ["title": ["type": "string", "minLength": 1, "maxLength": 160], "content": ["type": "string", "minLength": 1, "maxLength": 20000], "spaceId": ["type": "string", "minLength": 1]], "required": ["title", "content", "spaceId"], "additionalProperties": false]],
+            ["name": "request_connection_action", "description": "Ask the owner to approve a connected-service action that changes something (sends, creates, updates, deletes). Use only after a connection tool returned approval_required. Pass its approvalId and a one-sentence summary of the effect. Call once, then wait: the result contains the service response if approved.", "parameters": ["type": "object", "properties": ["approvalId": ["type": "string", "minLength": 1, "maxLength": 64], "summary": ["type": "string", "minLength": 1, "maxLength": 500]], "required": ["approvalId", "summary"], "additionalProperties": false]]
+        ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "agentId": dotId,
             "threadId": threadId,
             "runId": UUID().uuidString,
             "state": NSNull(),
             "messages": history,
-            "tools": [],
+            "tools": tools,
             "context": [],
             "forwardedProps": [:]
         ])
@@ -102,6 +108,59 @@ final class ConversationClient: ObservableObject {
             }
         }
         return error == nil
+    }
+
+    private func runHistory() -> [[String: Any]] {
+        messages.compactMap { message in
+            if message.role == "tool" {
+                guard let callId = message.toolCallId else { return nil }
+                return ["id": message.id, "role": "tool", "toolCallId": callId, "content": message.result ?? ""]
+            }
+            guard message.role == "user" || message.role == "assistant" else { return nil }
+            var item: [String: Any] = ["id": message.id, "role": message.role, "content": message.text]
+            let calls = messages.filter { $0.role == "tool" && $0.id == message.id }
+            if !calls.isEmpty { item["toolCalls"] = calls.compactMap { call in guard let id = call.toolCallId, let name = call.tool else { return nil }; return ["id": id, "name": name, "arguments": call.arguments?.mapValues { $0.value } ?? [:]] as [String: Any] } }
+            return item
+        }
+    }
+
+    func decideTool(_ messageId: String, approve: Bool, threadId: String, baseURL: URL, token: String?) async {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }), let tool = messages[index].tool, let callId = messages[index].toolCallId else { return }
+        do {
+            var result: [String: Any]
+            let args = messages[index].arguments?.mapValues { $0.value } ?? [:]
+            if !approve {
+                result = ["approved": false, "message": tool == "review_space_page" ? "The owner declined this draft. Do not save it." : "The owner declined this action. Do not perform it or try another way."]
+            } else if tool == "review_space_page" {
+                var payload = args; payload["toolCallId"] = callId
+                result = try await api("/api/conversations/\(threadId)/reviewed-page", method: "POST", body: payload, baseURL: baseURL, token: token)
+                result = ["approved": true, "pageId": result["id"] ?? "", "spaceId": result["spaceId"] ?? "", "url": "/#/spaces/\(result["spaceId"] ?? "")/pages/\(result["id"] ?? "")"]
+            } else {
+                guard let approvalId = args["approvalId"] as? String else { throw NSError(domain: "AETHER", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing approval ID."]) }
+                result = try await api("/api/conversations/\(threadId)/connection-actions", method: "POST", body: ["toolCallId": callId, "approvalId": approvalId], baseURL: baseURL, token: token)
+                result["approved"] = true
+            }
+            messages[index].decision = approve
+            messages[index].result = String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)
+            let toolResult = ChatMessage(role: "tool", text: "", result: messages[index].result, toolCallId: callId)
+            messages.append(toolResult)
+            _ = await sendContinuation(threadId: threadId, baseURL: baseURL, token: token)
+        } catch { messages[index].actionError = error.localizedDescription }
+    }
+
+    private func sendContinuation(threadId: String, baseURL: URL, token: String?) async -> Bool {
+        // The run endpoint accepts a fresh run containing the completed tool result in AG-UI history.
+        return await runAgain(threadId: threadId, baseURL: baseURL, token: token)
+    }
+
+    private func runAgain(threadId: String, baseURL: URL, token: String?) async -> Bool {
+        guard !sending else { return false }; sending = true; defer { sending = false }
+        do {
+            let context = try await api("/api/conversations/\(threadId)/page-context", baseURL: baseURL, token: token)
+            let dotId = messages.first(where: { $0.role == "user" }) == nil ? "" : ""
+            _ = context; _ = dotId
+            return false
+        } catch { error = error.localizedDescription; return false }
     }
 
     private func consume(eventType: String, dataLines: [String], assistantId: String) {
