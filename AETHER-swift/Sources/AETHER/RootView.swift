@@ -15,13 +15,21 @@ private enum Section: String, CaseIterable, Identifiable {
     var base: URL?; var token: String?
     func load(_ server: ServerController) async {
         guard let base = server.serverURL else { return }; self.base = base; token = server.ownerToken
-        do { state = try await get("/api/state"); workspace = try await get("/api/workspace"); await loadPages() } catch { alert = error.localizedDescription }
+        do {
+            state = try await get("/api/state")
+            workspace = try await get("/api/workspace")
+            if let firstSpace = rows("spaces", from: workspace).first, pageSpace.isEmpty {
+                pageSpace = str(firstSpace, "id")
+            }
+            await loadPages()
+        } catch { alert = error.localizedDescription }
     }
     func get(_ path: String) async throws -> [String: Any] { try await request(path, method: "GET") }
     func send(_ path: String, method: String = "POST", body: [String: Any] = [:]) async throws -> [String: Any] { try await request(path, method: method, body: body) }
     private func request(_ path: String, method: String, body: [String: Any]? = nil) async throws -> [String: Any] {
         guard let base else { throw URLError(.notConnectedToInternet) }
-        var req = URLRequest(url: base.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
+        guard let url = URL(string: path, relativeTo: base)?.absoluteURL else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         req.httpMethod = method; req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token, !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
@@ -31,7 +39,7 @@ private enum Section: String, CaseIterable, Identifiable {
         guard (response as? HTTPURLResponse)?.statusCode ?? 500 < 300 else { throw NSError(domain: "AETHER", code: 1, userInfo: [NSLocalizedDescriptionKey: result["error"] as? String ?? "Request failed."]) }
         return result
     }
-    func refresh() async { if base != nil { do { state = try await get("/api/state"); workspace = try await get("/api/workspace"); await loadPages() } catch { alert = error.localizedDescription } } }
+    func refresh() async { if base != nil { do { state = try await get("/api/state"); workspace = try await get("/api/workspace"); if pageSpace.isEmpty, let firstSpace = rows("spaces", from: workspace).first { pageSpace = str(firstSpace, "id") }; await loadPages() } catch { alert = error.localizedDescription } } }
     private func loadPages() async { for index in rows("spaces", from: workspace).indices { let space = rows("spaces", from: workspace)[index]; if let id = space["id"] as? String, let result = try? await get("/api/spaces/\(id)/pages") { var updated = space; updated["pages"] = result["items"] ?? []; var all = rows("spaces", from: workspace); all[index] = updated; workspace["spaces"] = all } } }
     func rows(_ key: String, from source: [String: Any]) -> [[String: Any]] { source[key] as? [[String: Any]] ?? [] }
     func str(_ row: [String: Any], _ key: String) -> String { row[key] as? String ?? "" }
@@ -133,7 +141,7 @@ struct RootView: View {
     private func createConversation() async { let dots = data.rows("dots", from: data.workspace); guard let dot = dots.first else { data.alert = "Create a Dot before starting a conversation."; return }; do { let result = try await data.send("/api/conversations", body: ["dotId": data.str(dot,"id"), "title":"A new thought"]); selectedThread = data.str(result,"id"); selectedDot = data.str(result,"dotId"); await data.refresh() } catch { data.alert = error.localizedDescription } }
     private var pages: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { TextField("Search pages", text: $search).textFieldStyle(.roundedBorder); Picker("Space", selection: $pageSpace) { ForEach(Array(data.rows("spaces", from:data.workspace).enumerated()), id:\.offset) { _, space in Text(data.str(space,"name")).tag(data.str(space,"id")) } }.frame(width:220); Button("New Page") { pageId = ""; pageTitle = "Untitled"; pageContent = "" } }
+            HStack { TextField("Search pages", text: $search).textFieldStyle(.roundedBorder); Picker("Space", selection: $pageSpace) { ForEach(Array(data.rows("spaces", from:data.workspace).enumerated()), id:\.offset) { _, space in Text(data.str(space,"name")).tag(data.str(space,"id")) } }.frame(width:220); Button("New Page") { pageId = ""; pageTitle = "Untitled"; pageContent = "" }.disabled(pageSpace.isEmpty) }
             HStack(alignment: .top, spacing: 14) {
                 List { ForEach(Array(data.rows("spaces", from: data.workspace).enumerated()), id: \.offset) { _, space in Section(data.str(space,"name")) { ForEach(Array(filteredPages(space).enumerated()), id: \.offset) { _, p in Button(data.str(p,"title")) { selectPage(p, space: space) }.buttonStyle(.plain) } } } }.frame(width: 260)
                 VStack(alignment: .leading, spacing: 10) {
@@ -146,12 +154,27 @@ struct RootView: View {
     }
     private func filteredPages(_ space: [String: Any]) -> [[String: Any]] { let rows = data.rows("pages", from: space); return rows.filter { search.isEmpty || data.str($0,"title").localizedCaseInsensitiveContains(search) } }
     private func selectPage(_ page: [String: Any], space: [String: Any]) { pageId = data.str(page,"id"); pageSpace = data.str(space,"id"); pageTitle = data.str(page,"title"); pageContent = data.str(page,"content"); pageRevision = page["revision"] as? Int ?? 0 }
-    private func savePage() async { do { if pageId.isEmpty { let result = try await data.send("/api/spaces/\(pageSpace)/pages", body: ["title":pageTitle,"content":pageContent]); pageId = data.str(result,"id") } else { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method: "PATCH", body: ["title":pageTitle,"content":pageContent,"expectedRevision":pageRevision]) }; await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private func savePage() async { do { if pageId.isEmpty { let result = try await data.send("/api/spaces/\(pageSpace)/pages", body: ["title":pageTitle,"content":pageContent]); pageId = data.str(result,"id"); pageRevision = result["revision"] as? Int ?? 1 } else { let result = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method: "PATCH", body: ["title":pageTitle,"content":pageContent,"expectedRevision":pageRevision]); pageRevision = result["revision"] as? Int ?? pageRevision + 1 }; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private func deletePage() async { do { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method:"DELETE"); pageId = ""; pageTitle = ""; pageContent = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private var tasks: some View { VStack(alignment: .leading, spacing: 12) { HStack { Picker("Conversation", selection: $selectedThread) { Text("Choose a conversation").tag(""); ForEach(Array(data.rows("conversations", from:data.workspace).enumerated()), id:\.offset) { _, thread in Text(data.str(thread,"title")).tag(data.str(thread,"id")) } }.frame(width:250); TextField("Task request", text: $taskPrompt); Button("Schedule") { Task { await createTask() } }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty) }; ForEach(Array(data.rows("tasks", from: data.state).enumerated()), id: \.offset) { _, task in HStack { VStack(alignment:.leading) { Text(data.str(task,"prompt")); Text(data.str(task,"status")).font(.caption).foregroundStyle(.secondary) }; Spacer(); ForEach(["run","pause","cancel"], id:\.self) { action in Button(action.capitalized) { Task { await taskAction(task, action) } }.controlSize(.small) } }.padding(12).background(.blue.opacity(0.05), in: RoundedRectangle(cornerRadius:10)) }; Spacer() } }
     private func createTask() async { guard !selectedThread.isEmpty else { data.alert = "Select a conversation for this scheduled task."; return }; do { _ = try await data.send("/api/tasks", body:["prompt":taskPrompt,"threadId":selectedThread]); taskPrompt = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private func taskAction(_ task:[String:Any], _ action:String) async { do { _ = try await data.send("/api/tasks/\(data.str(task,"id"))/actions", body:["action":action]); await data.refresh() } catch { data.alert = error.localizedDescription } }
     private var memories: some View { VStack(alignment:.leading, spacing:12) { HStack { TextField("Add a memory", text:$memoryText); Button("Save") { Task { do { _ = try await data.send("/api/memories", body:["text":memoryText]); memoryText = ""; await data.refresh() } catch { data.alert = error.localizedDescription } } }.buttonStyle(.borderedProminent) }; ForEach(Array(data.rows("memories", from:data.state).enumerated()), id:\.offset) { _, m in Text(data.str(m,"text")).frame(maxWidth:.infinity, alignment:.leading).padding(14).background(.blue.opacity(0.06), in:RoundedRectangle(cornerRadius:10)) }; Spacer() } }
     private var settings: some View { VStack(alignment:.leading, spacing:14) { TextField("Workspace name", text: Binding(get:{ (data.state["settings"] as? [String:Any])?["name"] as? String ?? "OpenDots" }, set:{ draft = $0 })).textFieldStyle(.roundedBorder); ForEach([("paused","Pause activity"),("researchAllowed","Allow research"),("memoryAllowed","Allow memory"),("appsAllowed","Allow connected apps")], id:\.0) { key,label in Toggle(label, isOn: Binding(get:{ ((data.state["settings"] as? [String:Any])?[key] as? Bool) ?? false }, set:{ value in Task { do { let updated = try await data.send("/api/settings", method:"PATCH", body:[key:value]); data.state["settings"] = updated } catch { data.alert = error.localizedDescription } } })) }; Button("Save name") { Task { do { data.state["settings"] = try await data.send("/api/settings", method:"PATCH", body:["name":draft]) } catch { data.alert = error.localizedDescription } } }; Text("Configuration: \((data.state["configured"] as? Bool == true) ? "Ready" : "Setup needed") · Mode: \(data.state["mode"] as? String ?? "—")").font(.caption).foregroundStyle(.secondary); Spacer() }.frame(maxWidth:500, alignment:.leading) }
+}
+
+struct LogConsole: View {
+    let text: String
+
+    var body: some View {
+        ScrollView {
+            Text(text.isEmpty ? "No output yet." : text)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+        }
+        .background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
 }
 #endif

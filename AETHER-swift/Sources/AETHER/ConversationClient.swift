@@ -20,17 +20,30 @@ final class ConversationClient: ObservableObject {
         messages.append(assistant)
         sending = true; error = nil
         defer { sending = false }
-        let url = baseURL.appendingPathComponent("api/copilotkit/agent/\(dotId)/run")
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("copilotkit")
+            .appendingPathComponent("agent")
+            .appendingPathComponent(dotId)
+            .appendingPathComponent("run")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let history = messages.dropLast().map { ["id": $0.id, "role": $0.role, "content": $0.text] }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["threadId": threadId, "runId": UUID().uuidString, "messages": history])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "threadId": threadId,
+            "runId": UUID().uuidString,
+            "state": NSNull(),
+            "messages": history,
+            "tools": [],
+            "context": [],
+            "forwardedProps": [:]
+        ])
         do {
             let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
             var eventType = "", payload = ""
             for try await line in bytes.lines {
                 if line.hasPrefix("event:") { eventType = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
