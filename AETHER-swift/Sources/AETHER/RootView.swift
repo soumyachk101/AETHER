@@ -3,15 +3,17 @@ import SwiftUI
 import Combine
 
 private enum WorkspaceSection: String, CaseIterable, Identifiable {
-    case home = "Home", dots = "Dots", conversations = "Conversations", pages = "Spaces & Pages", tasks = "Scheduled & Activity", memories = "Memories", settings = "Settings"
+    case home = "Home", dots = "Dots", conversations = "Conversations", pages = "Spaces & Pages", tasks = "Scheduled & Activity", memories = "Memories", connections = "Connected services", computer = "Computer", settings = "Settings"
     var id: String { rawValue }
-    var icon: String { ["Home":"house", "Dots":"sparkles", "Conversations":"bubble.left.and.bubble.right", "Spaces & Pages":"doc.text", "Scheduled & Activity":"clock", "Memories":"brain.head.profile", "Settings":"gearshape"][rawValue] ?? "circle" }
+    var icon: String { ["Home":"house", "Dots":"sparkles", "Conversations":"bubble.left.and.bubble.right", "Spaces & Pages":"doc.text", "Scheduled & Activity":"clock", "Memories":"brain.head.profile", "Connected services":"link", "Computer":"desktopcomputer", "Settings":"gearshape"][rawValue] ?? "circle" }
 }
 
 @MainActor private final class Workspace: ObservableObject {
     @Published var state: [String: Any] = [:]
     @Published var workspace: [String: Any] = [:]
     @Published var alert: String?
+    @Published var connections: [[String: Any]] = []
+    @Published var computer: [String: Any] = [:]
     var base: URL?; var token: String?
     func load(_ server: ServerController) async {
         guard let base = server.serverURL else { return }; self.base = base; token = server.ownerToken
@@ -115,6 +117,8 @@ struct RootView: View {
         case .pages: pages
         case .tasks: tasks
         case .memories: memories
+        case .connections: connectionsView
+        case .computer: computerView
         case .settings: settings
         }
     }
@@ -287,6 +291,33 @@ struct RootView: View {
         }
     }
     private var settings: some View { VStack(alignment:.leading, spacing:14) { TextField("Workspace name", text: Binding(get:{ (data.state["settings"] as? [String:Any])?["name"] as? String ?? "OpenDots" }, set:{ draft = $0 })).textFieldStyle(.roundedBorder); ForEach([("paused","Pause activity"),("researchAllowed","Allow research"),("memoryAllowed","Allow memory"),("appsAllowed","Allow connected apps")], id:\.0) { key,label in Toggle(label, isOn: Binding(get:{ ((data.state["settings"] as? [String:Any])?[key] as? Bool) ?? false }, set:{ value in Task { do { let updated = try await data.send("/api/settings", method:"PATCH", body:[key:value]); data.state["settings"] = updated } catch { data.alert = error.localizedDescription } } })) }; Button("Save name") { Task { do { data.state["settings"] = try await data.send("/api/settings", method:"PATCH", body:["name":draft]) } catch { data.alert = error.localizedDescription } } }; Text("Configuration: \((data.state["configured"] as? Bool == true) ? "Ready" : "Setup needed") · Mode: \(data.state["mode"] as? String ?? "—")").font(.caption).foregroundStyle(.secondary); Spacer() }.frame(maxWidth:500, alignment:.leading) }
+
+    private var connectionsView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Connected services").font(.title3)
+            Picker("Dot", selection: $selectedDot) { ForEach(Array(data.rows("dots", from: data.workspace).enumerated()), id: \.offset) { _, dot in Text(data.str(dot,"name")).tag(data.str(dot,"id")) } }
+                .onChange(of: selectedDot) { _ in Task { await loadConnections() } }
+            HStack { TextField("Service name", text: $draft); TextField("MCP server URL", text: $composer); SecureField("Bearer token (optional)", text: $memoryText); Button("Connect") { Task { do { let c = try await data.send("/api/dots/\(selectedDot)/connections", body:["name":draft,"url":composer,"token":memoryText]); data.connections.append(c); draft = ""; composer = ""; memoryText = "" } catch { data.alert = error.localizedDescription } } }.disabled(selectedDot.isEmpty || draft.isEmpty || composer.isEmpty) }
+            if data.connections.isEmpty { emptyState("No connected services", icon: "link", detail: "Connect an MCP server to give this Dot additional tools.") }
+            List { ForEach(Array(data.connections.enumerated()), id: \.offset) { _, connection in VStack(alignment: .leading, spacing: 8) { HStack { Text(data.str(connection,"name")).font(.headline); Spacer(); Button("Refresh tools") { Task { do { let next = try await data.send("/api/connections/\(data.str(connection,"id"))/refresh"); replaceConnection(next) } catch { data.alert = error.localizedDescription } } }; Button("Remove", role: .destructive) { Task { do { _ = try await data.send("/api/connections/\(data.str(connection,"id"))", method:"DELETE"); data.connections.removeAll { data.str($0,"id") == data.str(connection,"id") } } catch { data.alert = error.localizedDescription } } } }; ForEach(Array((connection["tools"] as? [[String:Any]] ?? []).enumerated()), id: \.offset) { _, tool in HStack { Toggle(data.str(tool,"title"), isOn: Binding(get:{ tool["enabled"] as? Bool ?? false }, set:{ enabled in Task { do { let next = try await data.send("/api/connections/\(data.str(connection,"id"))/tools/\(data.str(tool,"name"))", method:"PATCH", body:["enabled":enabled]); replaceConnection(next) } catch { data.alert = error.localizedDescription } } })).toggleStyle(.checkbox); Toggle("Ask first", isOn: Binding(get:{ tool["requiresApproval"] as? Bool ?? true }, set:{ enabled in Task { do { let next = try await data.send("/api/connections/\(data.str(connection,"id"))/tools/\(data.str(tool,"name"))", method:"PATCH", body:["requiresApproval":enabled]); replaceConnection(next) } catch { data.alert = error.localizedDescription } } })).toggleStyle(.checkbox).disabled(!(tool["enabled"] as? Bool ?? false)) } } } } }
+            Text("Voice calls are unavailable in this native client: the server requires a WebRTC SDP offer, and this project has no native WebRTC implementation.").font(.caption).foregroundStyle(.secondary)
+        }.task { await loadConnections() }
+    }
+    private func loadConnections() async { guard !selectedDot.isEmpty else { return }; do { let result = try await data.get("/api/dots/\(selectedDot)/connections"); data.connections = result["items"] as? [[String:Any]] ?? [] } catch { data.alert = error.localizedDescription } }
+    private func replaceConnection(_ connection: [String:Any]) { let id = data.str(connection,"id"); if let i = data.connections.firstIndex(where: { data.str($0,"id") == id }) { data.connections[i] = connection } }
+    private var computerView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("Dot", selection: $selectedDot) { ForEach(Array(data.rows("dots", from: data.workspace).enumerated()), id: \.offset) { _, dot in Text(data.str(dot,"name")).tag(data.str(dot,"id")) } }
+            HStack { Text("Computer: \(data.str(data.computer,"state").replacingOccurrences(of:"_", with:" "))"); Spacer(); Button("Refresh") { Task { await loadComputer() } }; Button("Start") { Task { await computerAction("start") } }; Button("Stop") { Task { await computerAction("stop") } } }
+            if data.computer["configured"] as? Bool == false { emptyState("Computer service not configured", icon:"desktopcomputer", detail:"Configure the server’s computer service URL and token, then restart the server.") }
+            Form { Toggle("Enable computer", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["enabled"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("enabled", v) } })); Toggle("Browser", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["browser"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("browser", v) } })); Toggle("Files", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["files"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("files", v) } })); Toggle("Terminal", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["shell"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("shell", v) } })) }.formStyle(.grouped)
+            Text("Computer actions can be managed through chat when enabled. Human screen control and live browser interaction are not implemented in this client.").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }.task { await loadComputer() }.onChange(of: selectedDot) { _ in Task { await loadComputer() } }
+    }
+    private func loadComputer() async { guard !selectedDot.isEmpty else { return }; do { data.computer = try await data.get("/api/dots/\(selectedDot)/computer") } catch { data.alert = error.localizedDescription } }
+    private func computerAction(_ action: String) async { do { data.computer = try await data.send("/api/dots/\(selectedDot)/computer/\(action)"); } catch { data.alert = error.localizedDescription } }
+    private func setComputerPermission(_ key: String, _ value: Bool) async { do { data.computer = try await data.send("/api/dots/\(selectedDot)/computer/permissions", method:"PATCH", body:[key:value]) } catch { data.alert = error.localizedDescription } }
 }
 
 private struct LaunchView: View {
