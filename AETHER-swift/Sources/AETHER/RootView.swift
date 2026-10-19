@@ -257,7 +257,8 @@ struct RootView: View {
                     if chat.messages.isEmpty { emptyState("No messages in this session", icon: "text.bubble", detail: "This native client keeps the current session in memory. The server does not expose conversation transcript history.") }
                     voiceControls
                     ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in
-                        if let tool = m.tool { toolCard(m, tool: tool) }
+                        if m.role == "tool" && m.tool == nil { EmptyView() }
+                        else if let tool = m.tool { toolCard(m, tool: tool) }
                         else { HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } }
                     } } }
                     if let error = chat.error { Text(error).foregroundStyle(.red).font(.caption) }
@@ -480,7 +481,7 @@ struct RootView: View {
         let args = message.arguments?.mapValues { $0.value } ?? [:]
         VStack(alignment: .leading, spacing: 8) {
             Text(tool).font(.headline)
-            Text(message.result == nil ? "Needs your approval" : message.decision == false ? "Declined" : message.actionError == nil ? "Completed" : "Error")
+            Text(message.result == nil ? (message.actionError == nil ? "Needs your approval" : "Decision failed") : message.decision == false ? "Declined" : message.actionError == nil ? "Completed" : "Error")
                 .font(.caption).foregroundStyle(message.actionError == nil ? Color.secondary : Color.red)
             Text((args["summary"] as? String) ?? (args["title"] as? String) ?? "Tool request")
             if let content = args["content"] as? String { Text(content).lineLimit(12) }
@@ -490,9 +491,10 @@ struct RootView: View {
             if tool == "review_space_page" || tool == "request_connection_action" {
                 if message.result == nil {
                     HStack {
-                        Button("Approve") { Task { await decideTool(message, approve: true) } }.buttonStyle(.borderedProminent).disabled(chat.sending)
-                        Button("Decline") { Task { await decideTool(message, approve: false) } }.disabled(chat.sending)
-                        if chat.sending { ProgressView("Continuing…").controlSize(.small) }
+                        Button("Approve") { Task { await decideTool(message, approve: true) } }.buttonStyle(.borderedProminent).disabled(chat.sending || chat.decidingToolID != nil)
+                        Button("Decline") { Task { await decideTool(message, approve: false) } }.disabled(chat.sending || chat.decidingToolID != nil)
+                        if chat.decidingToolID == message.id { ProgressView("Submitting decision…").controlSize(.small) }
+                        else if chat.sending { ProgressView("Continuing…").controlSize(.small) }
                     }
                 } else if message.actionError == nil { Text("Decision sent to the Dot.").font(.caption).foregroundStyle(.secondary) }
             }
