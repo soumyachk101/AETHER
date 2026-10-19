@@ -87,7 +87,7 @@ struct LaunchView: View {
                     Text("AETHER")
                         .font(.system(size: 30, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
-                    Text("Your OpenDots desktop")
+                    Text("Your AETHER desktop")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.55))
                 }
