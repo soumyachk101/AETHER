@@ -36,7 +36,10 @@ struct AetherWebView: NSViewRepresentable {
 
         if let token, !token.isEmpty {
             let script = """
-            try { sessionStorage.setItem('opendots-token', \(Self.jsString(token))); } catch (e) {}
+            try {
+                sessionStorage.setItem('aether-token', \(Self.jsString(token)));
+                sessionStorage.setItem('opendots-token', \(Self.jsString(token)));
+            } catch (e) {}
             """
             configuration.userContentController.addUserScript(
                 WKUserScript(

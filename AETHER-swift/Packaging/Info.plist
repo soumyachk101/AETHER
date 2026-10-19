@@ -40,6 +40,6 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>AETHER uses your microphone for real-time voice interactions with AETHER agents.</string>
     <key>NSHumanReadableCopyright</key>
-    <string>AETHER · Desktop workspace</string>
+    <string>Copyright © Soumya Chakraborty. All rights reserved.</string>
 </dict>
 </plist>

@@ -108,6 +108,8 @@ final class ServerController: ObservableObject {
     }
 
     var port: Int {
+        let savedAether = UserDefaults.standard.integer(forKey: "aetherPort")
+        if savedAether > 0 { return savedAether }
         let saved = UserDefaults.standard.integer(forKey: "openDotsPort")
         return saved > 0 ? saved : 4310
     }
@@ -381,7 +383,7 @@ final class ServerController: ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
-            // 401 is still a healthy OpenDots server that needs an owner token.
+            // 401 is still a healthy AETHER server that needs an owner token.
             return (200..<500).contains(http.statusCode)
         } catch {
             return false
@@ -417,10 +419,11 @@ final class ServerController: ObservableObject {
         var candidates: [URL] = []
         let environment = ProcessInfo.processInfo.environment
 
-        if let raw = environment["OPENDOTS_ROOT"], !raw.isEmpty {
+        if let raw = environment["AETHER_ROOT"] ?? environment["OPENDOTS_ROOT"], !raw.isEmpty {
             candidates.append(URL(fileURLWithPath: raw, isDirectory: true))
         }
-        if let saved = UserDefaults.standard.string(forKey: "openDotsRoot"),
+        if let saved = UserDefaults.standard.string(forKey: "aetherRoot")
+            ?? UserDefaults.standard.string(forKey: "openDotsRoot"),
            !saved.isEmpty {
             candidates.append(URL(fileURLWithPath: saved, isDirectory: true))
         }
@@ -437,11 +440,11 @@ final class ServerController: ObservableObject {
                 ? candidate
                 : candidate.deletingLastPathComponent()
             for _ in 0..<16 {
-                if isOpenDotsRoot(directory) {
+                if isAetherRoot(directory) {
                     return directory.standardizedFileURL
                 }
                 let nestedApp = directory.appendingPathComponent("AETHER-web", isDirectory: true)
-                if isOpenDotsRoot(nestedApp) {
+                if isAetherRoot(nestedApp) {
                     return nestedApp.standardizedFileURL
                 }
                 let parent = directory.deletingLastPathComponent()
@@ -452,7 +455,7 @@ final class ServerController: ObservableObject {
         return nil
     }
 
-    private static func isOpenDotsRoot(_ directory: URL) -> Bool {
+    private static func isAetherRoot(_ directory: URL) -> Bool {
         let package = directory.appendingPathComponent("package.json")
         let server = directory.appendingPathComponent("src/server/index.ts")
         guard FileManager.default.fileExists(atPath: server.path),

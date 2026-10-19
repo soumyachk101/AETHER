@@ -91,7 +91,8 @@ struct SettingsView: View {
     }
 
     private func load() {
-        rootPath = UserDefaults.standard.string(forKey: "openDotsRoot")
+        rootPath = UserDefaults.standard.string(forKey: "aetherRoot")
+            ?? UserDefaults.standard.string(forKey: "openDotsRoot")
             ?? ServerController.locateRoot()?.path
             ?? ""
         portText = String(server.port)
@@ -99,12 +100,15 @@ struct SettingsView: View {
 
     private func save() {
         if rootPath.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "aetherRoot")
             UserDefaults.standard.removeObject(forKey: "openDotsRoot")
         } else {
+            UserDefaults.standard.set(rootPath, forKey: "aetherRoot")
             UserDefaults.standard.set(rootPath, forKey: "openDotsRoot")
         }
 
         if let port = Int(portText), (1...65_535).contains(port) {
+            UserDefaults.standard.set(port, forKey: "aetherPort")
             UserDefaults.standard.set(port, forKey: "openDotsPort")
         }
     }

@@ -1,0 +1,109 @@
+name: Release AETHER
+
+on:
+  push:
+    tags:
+      - 'aether-v*'
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+
+jobs:
+  build-linux:
+    name: Build Linux bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libasound2-dev libopus-dev libx11-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: AETHER-web/package-lock.json
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Linux bundle
+        run: |
+          bash AETHER-rust/scripts/build-linux.sh
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' AETHER-rust/Cargo.toml | head -n 1)"
+          test "$GITHUB_REF_NAME" = "aether-v${version}" || { echo "Tag $GITHUB_REF_NAME does not match crate version $version" >&2; exit 1; }
+          archive="AETHER-rust/dist/release/AETHER-linux-v${version}.tar.gz"
+          test -s "$archive"
+      - name: Upload Linux archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: aether-linux
+          path: AETHER-rust/dist/release/AETHER-linux-v*.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows bundle
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: AETHER-web/package-lock.json
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows bundle
+        shell: pwsh
+        run: |
+          & AETHER-rust/scripts/build-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Windows packaging script failed with exit code $LASTEXITCODE." }
+          $version = (Select-String -Path AETHER-rust/Cargo.toml -Pattern '^version = "([^"]+)"').Matches.Groups[1].Value
+          if ($env:GITHUB_REF_NAME -ne "aether-v$version") { throw "Tag $env:GITHUB_REF_NAME does not match crate version $version." }
+          $archive = "AETHER-rust/dist/release/AETHER-windows-v$version.zip"
+          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -eq 0) { throw "Expected Windows archive was not created: $archive" }
+      - name: Upload Windows archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: aether-windows
+          path: AETHER-rust/dist/release/AETHER-windows-v*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux
+      - build-windows
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux archive
+        uses: actions/download-artifact@v4
+        with:
+          name: aether-linux
+          path: release-assets
+      - name: Download Windows archive
+        uses: actions/download-artifact@v4
+        with:
+          name: aether-windows
+          path: release-assets
+      - name: Verify release archives
+        run: |
+          shopt -s nullglob
+          linux=(release-assets/AETHER-linux-v*.tar.gz)
+          windows=(release-assets/AETHER-windows-v*.zip)
+          test "${#linux[@]}" -gt 0 || { echo "Linux release archive is missing" >&2; exit 1; }
+          test "${#windows[@]}" -gt 0 || { echo "Windows release archive is missing" >&2; exit 1; }
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/AETHER-*
+          fail_on_unmatched_files: true

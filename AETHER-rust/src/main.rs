@@ -42,7 +42,7 @@ fn main() {
         if let Some(token) = server::owner_token() {
             let escaped = token.replace('\\', "\\\\").replace('\'', "\\'");
             let script = format!(
-                "try {{ sessionStorage.setItem('opendots-token', '{escaped}'); }} catch (e) {{}}"
+                "try {{ sessionStorage.setItem('aether-token', '{escaped}'); sessionStorage.setItem('opendots-token', '{escaped}'); }} catch (e) {{}}"
             );
             builder = builder.with_initialization_script(&script);
         }
