@@ -16,8 +16,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "AETHER",
-            path: "Sources/AETHER",
-            dependencies: [.product(name: "WebRTC", package: "WebRTC")]
+            dependencies: [.product(name: "WebRTC", package: "WebRTC")],
+            path: "Sources/AETHER"
         )
     ]
 )
