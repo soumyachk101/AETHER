@@ -5,7 +5,6 @@ import {
   Brain,
   Check,
   CheckCircle2,
-  Clock,
   Compass,
   Cpu,
   Eye,
@@ -14,15 +13,12 @@ import {
   Key,
   Layers,
   Loader2,
-  Lock,
   Moon,
   Pause,
   Play,
   RefreshCw,
-  Search,
   Server,
   Settings2,
-  Shield,
   Sparkles,
   Sun,
   Terminal,
@@ -51,7 +47,8 @@ const MODEL_PRESETS = [
     name: 'GPT-4o',
     badge: 'Recommended',
     tag: 'Omni',
-    description: 'High-intelligence flagship model. Fast, multimodal reasoning.',
+    description:
+      'High-intelligence flagship model. Fast, multimodal reasoning.',
   },
   {
     id: 'gpt-4o-mini',
@@ -65,14 +62,16 @@ const MODEL_PRESETS = [
     name: 'o3-mini',
     badge: 'Reasoning',
     tag: 'Code & Math',
-    description: 'Frontier reasoning model designed for coding and complex logic.',
+    description:
+      'Frontier reasoning model designed for coding and complex logic.',
   },
   {
     id: 'o1',
     name: 'o1',
     badge: 'Deep Reasoning',
     tag: 'Advanced',
-    description: 'Spends time thinking before answering to solve deep problems.',
+    description:
+      'Spends time thinking before answering to solve deep problems.',
   },
   {
     id: 'gpt-4.5-preview',
@@ -106,10 +105,14 @@ export function SettingsView({
   );
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCustomModel, setIsCustomModel] = useState(
-    !MODEL_PRESETS.some((m) => m.id === (state.settings.openaiModel || 'gpt-4o')),
+    !MODEL_PRESETS.some(
+      (m) => m.id === (state.settings.openaiModel || 'gpt-4o'),
+    ),
   );
   const [customModelName, setCustomModelName] = useState(
-    !MODEL_PRESETS.some((m) => m.id === (state.settings.openaiModel || 'gpt-4o'))
+    !MODEL_PRESETS.some(
+      (m) => m.id === (state.settings.openaiModel || 'gpt-4o'),
+    )
       ? state.settings.openaiModel || ''
       : '',
   );
@@ -153,8 +156,17 @@ export function SettingsView({
     } catch {
       setCodexStatus({
         installed: false,
-        authenticated: false,
-        error: 'Unable to query Codex CLI status.',
+        binaryPath: null,
+        version: null,
+        loggedIn: false,
+        email: null,
+        plan: null,
+        accountId: null,
+        orgName: null,
+        hasApiKey: false,
+        apiKeyPreview: null,
+        hasAccessToken: false,
+        authMode: null,
       });
     } finally {
       setLoadingCodex(false);
@@ -299,7 +311,7 @@ export function SettingsView({
         </nav>
 
         <div className="settings-sidebar-footer">
-          {codexStatus?.authenticated && (
+          {codexStatus?.loggedIn && (
             <div className="codex-quick-status">
               <span className="status-dot-pulse online" />
               <div className="codex-quick-text">
@@ -325,7 +337,9 @@ export function SettingsView({
         {saveSuccess && (
           <div className="settings-alert alert-success" role="status">
             <CheckCircle2 size={18} />
-            <span>Settings saved successfully and synchronized with environment!</span>
+            <span>
+              Settings saved successfully and synchronized with environment!
+            </span>
           </div>
         )}
 
@@ -357,14 +371,15 @@ export function SettingsView({
                   <div>
                     <h4>Codex CLI Auto-Detection</h4>
                     <span className="card-subtitle">
-                      Scans local system (~/.codex/auth.json and PATH) for OpenAI credentials
+                      Scans local system (~/.codex/auth.json and PATH) for
+                      OpenAI credentials
                     </span>
                   </div>
                 </div>
 
                 <div className="card-actions">
                   {codexStatus?.installed ? (
-                    codexStatus.authenticated ? (
+                    codexStatus.loggedIn ? (
                       <span className="status-badge badge-active">
                         <span className="status-dot-pulse" />
                         CLI Connected
@@ -411,11 +426,11 @@ export function SettingsView({
                     </strong>
                   </div>
 
-                  {codexStatus.organization && (
+                  {codexStatus.orgName && (
                     <div className="detail-item">
                       <span className="detail-label">Organization</span>
                       <strong className="detail-value">
-                        {codexStatus.organization}
+                        {codexStatus.orgName}
                       </strong>
                     </div>
                   )}
@@ -423,13 +438,14 @@ export function SettingsView({
                   <div className="detail-item">
                     <span className="detail-label">CLI Version & Path</span>
                     <span className="detail-code">
-                      v{codexStatus.version || '0.163.0'} · {codexStatus.path}
+                      v{codexStatus.version || '0.163.0'} ·{' '}
+                      {codexStatus.binaryPath}
                     </span>
                   </div>
                 </div>
               )}
 
-              {codexStatus?.authenticated ? (
+              {codexStatus?.loggedIn ? (
                 <div className="codex-banner-info">
                   <Check size={16} className="text-success" />
                   <span>
@@ -443,7 +459,8 @@ export function SettingsView({
                   <Terminal size={15} />
                   <span>
                     To use Codex CLI with ChatGPT, install Codex via{' '}
-                    <code>npm i -g @openai/codex</code> and run <code>codex login</code>.
+                    <code>npm i -g @openai/codex</code> and run{' '}
+                    <code>codex login</code>.
                   </span>
                 </div>
               )}
@@ -459,7 +476,8 @@ export function SettingsView({
                   <div>
                     <h4>OpenAI API Key</h4>
                     <span className="card-subtitle">
-                      Used for autonomous Dots, agent reasoning, chat completions, and tools
+                      Used for autonomous Dots, agent reasoning, chat
+                      completions, and tools
                     </span>
                   </div>
                 </div>
@@ -495,7 +513,8 @@ export function SettingsView({
                   </button>
                 </div>
                 <p className="form-hint">
-                  Your key is persisted securely in your local SQLite store and updated in your local <code>.env</code>.
+                  Your key is persisted securely in your local SQLite store and
+                  updated in your local <code>.env</code>.
                 </p>
               </div>
 
@@ -534,7 +553,8 @@ export function SettingsView({
                       <span className="model-badge">Custom</span>
                     </div>
                     <p className="model-card-desc">
-                      Specify any compatible model ID (e.g. fine-tuned, Ollama, OpenRouter).
+                      Specify any compatible model ID (e.g. fine-tuned, Ollama,
+                      OpenRouter).
                     </p>
                     <div className="model-card-tag">Self-hosted / Other</div>
                   </div>
@@ -572,7 +592,9 @@ export function SettingsView({
                   />
                 </div>
                 <p className="form-hint">
-                  Default: <code>https://api.openai.com/v1</code>. You can point this to local Ollama (<code>http://localhost:11434/v1</code>), OpenRouter, or Azure.
+                  Default: <code>https://api.openai.com/v1</code>. You can point
+                  this to local Ollama (<code>http://localhost:11434/v1</code>),
+                  OpenRouter, or Azure.
                 </p>
               </div>
 
@@ -582,7 +604,10 @@ export function SettingsView({
                   type="button"
                   className="test-conn-btn"
                   onClick={handleTestConnection}
-                  disabled={testingConnection || (!openaiApiKey.trim() && !state.settings.openaiApiKey)}
+                  disabled={
+                    testingConnection ||
+                    (!openaiApiKey.trim() && !state.settings.openaiApiKey)
+                  }
                 >
                   {testingConnection ? (
                     <>
@@ -622,7 +647,8 @@ export function SettingsView({
                   <div>
                     <h4>CopilotKit Intelligence Key (Optional)</h4>
                     <span className="card-subtitle">
-                      Cloud-based cross-device memory synchronization, learning, and skill delivery
+                      Cloud-based cross-device memory synchronization, learning,
+                      and skill delivery
                     </span>
                   </div>
                 </div>
@@ -640,7 +666,8 @@ export function SettingsView({
                   onChange={(e) => setIntelligenceApiKey(e.target.value)}
                 />
                 <p className="form-hint">
-                  Optional. If omitted, AETHER operates locally with your direct OpenAI API key.
+                  Optional. If omitted, AETHER operates locally with your direct
+                  OpenAI API key.
                 </p>
               </div>
             </div>
@@ -683,11 +710,16 @@ export function SettingsView({
               <div className="toggle-setting-row">
                 <div className="toggle-info">
                   <div className="toggle-title-line">
-                    {paused ? <Pause size={18} className="text-warning" /> : <Play size={18} className="text-success" />}
+                    {paused ? (
+                      <Pause size={18} className="text-warning" />
+                    ) : (
+                      <Play size={18} className="text-success" />
+                    )}
                     <strong>Master Pause</strong>
                   </div>
                   <p>
-                    When paused, all background compute stops, autonomous Dots wait, and scheduled tasks are deferred.
+                    When paused, all background compute stops, autonomous Dots
+                    wait, and scheduled tasks are deferred.
                   </p>
                 </div>
                 <label className="switch-label">
@@ -709,7 +741,8 @@ export function SettingsView({
                     <strong>Web Research Allowed</strong>
                   </div>
                   <p>
-                    Permit Dots to use Parallel or DuckDuckGo web search to gather live information.
+                    Permit Dots to use Parallel or DuckDuckGo web search to
+                    gather live information.
                   </p>
                 </div>
                 <label className="switch-label">
@@ -731,7 +764,8 @@ export function SettingsView({
                     <strong>Persistent Memories</strong>
                   </div>
                   <p>
-                    Allow Dots to recall your explicit user preferences across conversations.
+                    Allow Dots to recall your explicit user preferences across
+                    conversations.
                   </p>
                 </div>
                 <label className="switch-label">
@@ -753,7 +787,8 @@ export function SettingsView({
                     <strong>Apps & Composio Integrations</strong>
                   </div>
                   <p>
-                    Enable third-party app tool execution (GitHub, Slack, linear, browser automation) when configured.
+                    Enable third-party app tool execution (GitHub, Slack,
+                    linear, browser automation) when configured.
                   </p>
                 </div>
                 <label className="switch-label">
@@ -838,7 +873,10 @@ export function SettingsView({
           <div className="settings-section-form">
             <div className="settings-section-header">
               <h2>System Diagnostics</h2>
-              <p>Inspect local services, database health, and environment bindings.</p>
+              <p>
+                Inspect local services, database health, and environment
+                bindings.
+              </p>
             </div>
 
             <div className="settings-card">
@@ -865,9 +903,9 @@ export function SettingsView({
                 <div className="diag-row">
                   <span className="diag-label">Codex CLI Detection</span>
                   <span
-                    className={`diag-val ${codexStatus?.authenticated ? 'success' : 'muted'}`}
+                    className={`diag-val ${codexStatus?.loggedIn ? 'success' : 'muted'}`}
                   >
-                    {codexStatus?.authenticated
+                    {codexStatus?.loggedIn
                       ? `Active · ${codexStatus.email}`
                       : codexStatus?.installed
                         ? 'Installed (Unauthenticated)'
@@ -898,7 +936,8 @@ export function SettingsView({
                 <div className="diag-row">
                   <span className="diag-label">Spaces & Dots Count</span>
                   <span className="diag-val">
-                    {workspace.spaces.length} Spaces · {workspace.dots.length} Dots
+                    {workspace.spaces.length} Spaces · {workspace.dots.length}{' '}
+                    Dots
                   </span>
                 </div>
               </div>
