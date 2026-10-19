@@ -56,9 +56,18 @@ struct RootView: View {
     @State private var pageId = ""
     @State private var pageSpace = ""
     @State private var pageRevision = 0
+    @State private var newSpaceName = ""
+    @State private var dotName = ""
+    @State private var dotInstructions = ""
+    @State private var dotSpace = ""
+    @State private var dotResearchAllowed = true
+    @State private var dotMemoryAllowed = true
+    @State private var dotAppsAllowed = false
     @State private var composer = ""
     @State private var taskPrompt = ""
     @State private var memoryText = ""
+    @State private var editingMemoryID = ""
+    @State private var editingMemoryText = ""
 
     var body: some View {
         Group {
@@ -101,7 +110,7 @@ struct RootView: View {
     @ViewBuilder private var screen: some View {
         switch section {
         case .home: home
-        case .dots: listScreen("Your specialist Dots", rows: data.rows("dots", from: data.workspace), name: "name", detail: "instructions")
+        case .dots: dots
         case .conversations: conversations
         case .pages: pages
         case .tasks: tasks
@@ -121,6 +130,61 @@ struct RootView: View {
     private func metric(_ label: String, _ count: Int) -> some View { VStack(alignment: .leading, spacing: 6) { Text("\(count)").font(.title.bold()); Text(label).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(18).background(.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 14)) }
     private func emptyState(_ title: String, icon: String, detail: String) -> some View { VStack(spacing: 10) { Image(systemName: icon).font(.system(size: 32)).foregroundStyle(.blue.opacity(0.7)); Text(title).font(.headline); Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 360) }.frame(maxWidth: .infinity, maxHeight: .infinity) }
     private func listScreen(_ title: String, rows: [[String: Any]], name: String, detail: String) -> some View { VStack(alignment: .leading, spacing: 16) { Text(title).font(.title3); ForEach(Array(rows.enumerated()), id: \.offset) { _, row in VStack(alignment: .leading, spacing: 6) { Text(data.str(row,name)).font(.headline); Text(data.str(row,detail)).foregroundStyle(.secondary).lineLimit(4) }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.blue.opacity(0.055), in: RoundedRectangle(cornerRadius: 12)) }; Spacer() } }
+    private var dots: some View {
+        HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack { Text("Specialists").font(.headline); Spacer(); Button("New") { resetDotForm() } }
+                ForEach(Array(data.rows("dots", from: data.workspace).enumerated()), id: \.offset) { _, dot in
+                    let id = data.str(dot, "id")
+                    Button {
+                        selectedDot = id
+                        dotName = data.str(dot, "name")
+                        dotInstructions = data.str(dot, "instructions")
+                        dotSpace = data.str(dot, "spaceId")
+                        dotResearchAllowed = dot["researchAllowed"] as? Bool ?? true
+                        dotMemoryAllowed = dot["memoryAllowed"] as? Bool ?? true
+                        dotAppsAllowed = dot["appsAllowed"] as? Bool ?? false
+                    } label: {
+                        Text(data.str(dot, "name")).frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                            .background(selectedDot == id ? .blue.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    }.buttonStyle(.plain)
+                }
+                Spacer()
+            }.frame(width: 190)
+            Divider()
+            Form {
+                TextField("Name", text: $dotName)
+                TextField("Role instructions", text: $dotInstructions, axis: .vertical).lineLimit(4...10)
+                Picker("Default Space", selection: $dotSpace) {
+                    ForEach(Array(data.rows("spaces", from: data.workspace).enumerated()), id: \.offset) { _, space in
+                        Text(data.str(space, "name")).tag(data.str(space, "id"))
+                    }
+                }
+                Toggle("Allow research", isOn: $dotResearchAllowed)
+                Toggle("Allow memory", isOn: $dotMemoryAllowed)
+                Toggle("Allow connected apps", isOn: $dotAppsAllowed)
+                HStack {
+                    Spacer()
+                    Button(selectedDot.isEmpty ? "Create Dot" : "Save Dot") { Task { await saveDot() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(dotName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || dotInstructions.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || dotSpace.isEmpty)
+                }
+            }.formStyle(.grouped)
+        }
+    }
+    private func resetDotForm() {
+        selectedDot = ""; dotName = ""; dotInstructions = ""
+        dotSpace = data.str(data.rows("spaces", from: data.workspace).first ?? [:], "id")
+        dotResearchAllowed = true; dotMemoryAllowed = true; dotAppsAllowed = false
+    }
+    private func saveDot() async {
+        let body: [String: Any] = ["name":dotName, "instructions":dotInstructions, "researchAllowed":dotResearchAllowed, "memoryAllowed":dotMemoryAllowed, "appsAllowed":dotAppsAllowed, "composioToolkits":[], "spaceId":dotSpace, "spaceIds":[dotSpace]]
+        do {
+            let path = selectedDot.isEmpty ? "/api/dots" : "/api/dots/\(selectedDot)"
+            let result = try await data.send(path, method: selectedDot.isEmpty ? "POST" : "PUT", body: body)
+            selectedDot = data.str(result, "id"); await data.refresh()
+        } catch { data.alert = error.localizedDescription }
+    }
     private var conversations: some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading) {
@@ -145,6 +209,11 @@ struct RootView: View {
     private var pages: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { TextField("Search pages", text: $search).textFieldStyle(.roundedBorder); Picker("Space", selection: $pageSpace) { ForEach(Array(data.rows("spaces", from:data.workspace).enumerated()), id:\.offset) { _, space in Text(data.str(space,"name")).tag(data.str(space,"id")) } }.frame(width:220); Button("New Page") { pageId = ""; pageTitle = "Untitled"; pageContent = "" }.disabled(pageSpace.isEmpty) }
+            HStack {
+                TextField("New Space", text: $newSpaceName).textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                Button("Create Space") { Task { await createSpace() } }
+                    .disabled(newSpaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
             HStack(alignment: .top, spacing: 14) {
                 List {
                     ForEach(Array(data.rows("spaces", from: data.workspace).enumerated()), id: \.offset) { _, space in
@@ -166,13 +235,57 @@ struct RootView: View {
         }
     }
     private func filteredPages(_ space: [String: Any]) -> [[String: Any]] { let rows = data.rows("pages", from: space); return rows.filter { search.isEmpty || data.str($0,"title").localizedCaseInsensitiveContains(search) } }
+    private func createSpace() async {
+        do {
+            let result = try await data.send("/api/spaces", body: ["name": newSpaceName, "description": ""])
+            pageSpace = data.str(result, "id"); newSpaceName = ""; await data.refresh()
+        } catch { data.alert = error.localizedDescription }
+    }
     private func selectPage(_ page: [String: Any], space: [String: Any]) { pageId = data.str(page,"id"); pageSpace = data.str(space,"id"); pageTitle = data.str(page,"title"); pageContent = data.str(page,"content"); pageRevision = page["revision"] as? Int ?? 0 }
     private func savePage() async { do { if pageId.isEmpty { let result = try await data.send("/api/spaces/\(pageSpace)/pages", body: ["title":pageTitle,"content":pageContent]); pageId = data.str(result,"id"); pageRevision = result["revision"] as? Int ?? 1 } else { let result = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method: "PATCH", body: ["title":pageTitle,"content":pageContent,"expectedRevision":pageRevision]); pageRevision = result["revision"] as? Int ?? pageRevision + 1 }; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private func deletePage() async { do { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method:"DELETE"); pageId = ""; pageTitle = ""; pageContent = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private var tasks: some View { VStack(alignment: .leading, spacing: 12) { HStack { Picker("Conversation", selection: $selectedThread) { Text("Choose a conversation").tag(""); ForEach(Array(data.rows("conversations", from:data.workspace).enumerated()), id:\.offset) { _, thread in Text(data.str(thread,"title")).tag(data.str(thread,"id")) } }.frame(width:250); TextField("Task request", text: $taskPrompt); Button("Schedule") { Task { await createTask() } }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty) }; ForEach(Array(data.rows("tasks", from: data.state).enumerated()), id: \.offset) { _, task in HStack { VStack(alignment:.leading) { Text(data.str(task,"prompt")); Text(data.str(task,"status")).font(.caption).foregroundStyle(.secondary) }; Spacer(); ForEach(["run","pause","cancel"], id:\.self) { action in Button(action.capitalized) { Task { await taskAction(task, action) } }.controlSize(.small) } }.padding(12).background(.blue.opacity(0.05), in: RoundedRectangle(cornerRadius:10)) }; Spacer() } }
     private func createTask() async { guard !selectedThread.isEmpty else { data.alert = "Select a conversation for this scheduled task."; return }; do { _ = try await data.send("/api/tasks", body:["prompt":taskPrompt,"threadId":selectedThread]); taskPrompt = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private func taskAction(_ task:[String:Any], _ action:String) async { do { _ = try await data.send("/api/tasks/\(data.str(task,"id"))/actions", body:["action":action]); await data.refresh() } catch { data.alert = error.localizedDescription } }
-    private var memories: some View { VStack(alignment:.leading, spacing:12) { HStack { TextField("Add a memory", text:$memoryText); Button("Save") { Task { do { _ = try await data.send("/api/memories", body:["text":memoryText]); memoryText = ""; await data.refresh() } catch { data.alert = error.localizedDescription } } }.buttonStyle(.borderedProminent) }; ForEach(Array(data.rows("memories", from:data.state).enumerated()), id:\.offset) { _, m in Text(data.str(m,"text")).frame(maxWidth:.infinity, alignment:.leading).padding(14).background(.blue.opacity(0.06), in:RoundedRectangle(cornerRadius:10)) }; Spacer() } }
+    private var memories: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                TextField("Add a memory", text: $memoryText)
+                Button("Save") {
+                    Task {
+                        do { _ = try await data.send("/api/memories", body: ["text": memoryText]); memoryText = ""; await data.refresh() }
+                        catch { data.alert = error.localizedDescription }
+                    }
+                }.buttonStyle(.borderedProminent)
+            }
+            ForEach(Array(data.rows("memories", from: data.state).enumerated()), id: \.offset) { _, memory in
+                let id = data.str(memory, "id")
+                HStack {
+                    if editingMemoryID == id {
+                        TextField("Memory", text: $editingMemoryText)
+                        Button("Save") {
+                            Task {
+                                do { _ = try await data.send("/api/memories/\(id)", method: "PUT", body: ["text": editingMemoryText]); editingMemoryID = ""; await data.refresh() }
+                                catch { data.alert = error.localizedDescription }
+                            }
+                        }
+                    } else {
+                        Text(data.str(memory, "text")).frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Edit") { editingMemoryID = id; editingMemoryText = data.str(memory, "text") }
+                        Button("Delete", role: .destructive) {
+                            Task {
+                                do { _ = try await data.send("/api/memories/\(id)", method: "DELETE"); await data.refresh() }
+                                catch { data.alert = error.localizedDescription }
+                            }
+                        }
+                    }
+                }
+                .padding(14)
+                .background(.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            }
+            Spacer()
+        }
+    }
     private var settings: some View { VStack(alignment:.leading, spacing:14) { TextField("Workspace name", text: Binding(get:{ (data.state["settings"] as? [String:Any])?["name"] as? String ?? "OpenDots" }, set:{ draft = $0 })).textFieldStyle(.roundedBorder); ForEach([("paused","Pause activity"),("researchAllowed","Allow research"),("memoryAllowed","Allow memory"),("appsAllowed","Allow connected apps")], id:\.0) { key,label in Toggle(label, isOn: Binding(get:{ ((data.state["settings"] as? [String:Any])?[key] as? Bool) ?? false }, set:{ value in Task { do { let updated = try await data.send("/api/settings", method:"PATCH", body:[key:value]); data.state["settings"] = updated } catch { data.alert = error.localizedDescription } } })) }; Button("Save name") { Task { do { data.state["settings"] = try await data.send("/api/settings", method:"PATCH", body:["name":draft]) } catch { data.alert = error.localizedDescription } } }; Text("Configuration: \((data.state["configured"] as? Bool == true) ? "Ready" : "Setup needed") · Mode: \(data.state["mode"] as? String ?? "—")").font(.caption).foregroundStyle(.secondary); Spacer() }.frame(maxWidth:500, alignment:.leading) }
 }
 

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::{sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant}};
 
 #[derive(Clone, Copy, PartialEq)]
-enum Screen { Home, Conversations, Spaces, Activity, Memories, Settings }
+enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings }
 
 struct NativeApp {
     base: String,
@@ -36,6 +36,12 @@ struct NativeApp {
     memory_text: String,
     settings_name: String,
     settings: Value,
+    dot_name: String,
+    dot_instructions: String,
+    dot_space: String,
+    dot_research: bool,
+    dot_memory: bool,
+    dot_apps: bool,
     server: Arc<Mutex<Option<server::OwnedServer>>>,
 }
 
@@ -57,7 +63,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), memory_text: String::new(), settings_name: String::new(), settings: json!({}), server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -99,6 +105,7 @@ impl NativeApp {
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
                         "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.data["capture"] = Value::Null; self.refresh(); }
+                        "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
                         "mutation" => self.refresh(),
                         _ => {}
                     }
@@ -123,6 +130,48 @@ impl NativeApp {
         });
         ui.add_space(20.0); ui.heading("Recent activity");
         for call in self.workspace["calls"].as_array().into_iter().flatten().take(8) { ui.label(format!("{} · {} · {}", call["status"].as_str().unwrap_or("call"), call["startedAt"], call["transcript"].as_str().unwrap_or(""))); }
+    }
+
+    fn render_dots(&mut self, ui: &mut egui::Ui) {
+        Self::heading(ui, "Specialist Dots", "Set each specialist’s role and workspace permissions.");
+        ui.columns(2, |cols| {
+            cols[0].horizontal(|ui| {
+                if ui.button("New Dot").clicked() {
+                    self.selected_dot.clear(); self.dot_name.clear(); self.dot_instructions.clear();
+                    self.dot_space = self.workspace["spaces"][0]["id"].as_str().unwrap_or("").to_owned();
+                    self.dot_research = true; self.dot_memory = true; self.dot_apps = false;
+                }
+            });
+            egui::ScrollArea::vertical().show(&mut cols[0], |ui| {
+                for dot in self.workspace["dots"].as_array().into_iter().flatten() {
+                    let id = dot["id"].as_str().unwrap_or("");
+                    if ui.selectable_label(self.selected_dot == id, dot["name"].as_str().unwrap_or("Dot")).clicked() {
+                        self.selected_dot = id.to_owned();
+                        self.dot_name = dot["name"].as_str().unwrap_or("").to_owned();
+                        self.dot_instructions = dot["instructions"].as_str().unwrap_or("").to_owned();
+                        self.dot_space = dot["spaceId"].as_str().unwrap_or("").to_owned();
+                        self.dot_research = dot["researchAllowed"].as_bool().unwrap_or(true);
+                        self.dot_memory = dot["memoryAllowed"].as_bool().unwrap_or(true);
+                        self.dot_apps = dot["appsAllowed"].as_bool().unwrap_or(false);
+                    }
+                }
+            });
+            cols[1].label("Name"); cols[1].text_edit_singleline(&mut self.dot_name);
+            cols[1].label("Role instructions"); cols[1].add(egui::TextEdit::multiline(&mut self.dot_instructions).desired_rows(8));
+            egui::ComboBox::from_label("Default Space").selected_text(self.workspace["spaces"].as_array().into_iter().flatten().find(|s|s["id"].as_str()==Some(&self.dot_space)).and_then(|s|s["name"].as_str()).unwrap_or("Choose a space")).show_ui(&mut cols[1], |ui| {
+                for space in self.workspace["spaces"].as_array().into_iter().flatten() { ui.selectable_value(&mut self.dot_space,space["id"].as_str().unwrap_or("").into(),space["name"].as_str().unwrap_or("Space")); }
+            });
+            cols[1].checkbox(&mut self.dot_research, "Allow research");
+            cols[1].checkbox(&mut self.dot_memory, "Allow memory");
+            cols[1].checkbox(&mut self.dot_apps, "Allow connected apps");
+            let can_save = !self.dot_name.trim().is_empty() && self.dot_instructions.trim().len() >= 3 && !self.dot_space.is_empty();
+            let label = if self.selected_dot.is_empty() { "Create Dot" } else { "Save Dot" };
+            if cols[1].add_enabled(can_save, egui::Button::new(label)).clicked() {
+                let body = json!({"name":self.dot_name,"instructions":self.dot_instructions,"researchAllowed":self.dot_research,"memoryAllowed":self.dot_memory,"appsAllowed":self.dot_apps,"composioToolkits":[],"spaceId":self.dot_space,"spaceIds":[self.dot_space]});
+                if self.selected_dot.is_empty() { self.request("dot-saved","POST","/dots",Some(body)); }
+                else { self.request("dot-saved","PUT",&format!("/dots/{}",self.selected_dot),Some(body)); }
+            }
+        });
     }
 
     fn render_conversations(&mut self, ui: &mut egui::Ui) {
@@ -195,14 +244,14 @@ impl eframe::App for NativeApp {
         let mut style=(*ctx.style()).clone(); style.visuals.window_fill=bg; style.visuals.panel_fill=bg; style.visuals.widgets.active.bg_fill=blue; style.visuals.selection.bg_fill=blue; ctx.set_style(style);
         egui::SidePanel::left("navigation").exact_width(220.0).frame(egui::Frame::side_top_panel(&ctx.style()).fill(egui::Color32::from_rgb(239,236,229))).show(ctx,|ui| {
             ui.add_space(14.0); ui.heading("AETHER"); ui.label("OpenDots workspace"); ui.add_space(24.0);
-            for (label,screen) in [("Home",Screen::Home),("Conversations",Screen::Conversations),("Spaces & Pages",Screen::Spaces),("Scheduled & Activity",Screen::Activity),("Memories",Screen::Memories),("Settings",Screen::Settings)] { if ui.selectable_label(self.screen==screen,label).clicked() { self.screen=screen; } }
+            for (label,screen) in [("Home",Screen::Home),("Dots",Screen::Dots),("Conversations",Screen::Conversations),("Spaces & Pages",Screen::Spaces),("Scheduled & Activity",Screen::Activity),("Memories",Screen::Memories),("Settings",Screen::Settings)] { if ui.selectable_label(self.screen==screen,label).clicked() { self.screen=screen; } }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT),|ui| { ui.label(if self.server_error.is_some(){"Server stopped"}else{"Local server connected"}); });
         });
         egui::CentralPanel::default().show(ctx,|ui| {
             egui::ScrollArea::vertical().show(ui,|ui| {
                 if let Some(message)=&self.server_error { ui.colored_label(egui::Color32::DARK_RED,message); }
                 if let Some(message)=&self.error { ui.colored_label(egui::Color32::DARK_RED,message); }
-                match self.screen { Screen::Home=>self.render_home(ui), Screen::Conversations=>self.render_conversations(ui), Screen::Spaces=>self.render_spaces(ui), Screen::Activity=>self.render_activity(ui), Screen::Memories=>self.render_memories(ui), Screen::Settings=>self.render_settings(ui) }
+                match self.screen { Screen::Home=>self.render_home(ui), Screen::Dots=>self.render_dots(ui), Screen::Conversations=>self.render_conversations(ui), Screen::Spaces=>self.render_spaces(ui), Screen::Activity=>self.render_activity(ui), Screen::Memories=>self.render_memories(ui), Screen::Settings=>self.render_settings(ui) }
             });
         });
         ctx.request_repaint_after(Duration::from_millis(250));
