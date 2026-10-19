@@ -226,9 +226,9 @@ struct AetherMark: View {
                         .foregroundStyle(.white)
                 }
                 .frame(width: size, height: size)
+                .shadow(color: .black.opacity(0.38), radius: size * 0.18, y: size * 0.09)
             }
         }
-        .shadow(color: .black.opacity(0.38), radius: size * 0.18, y: size * 0.09)
     }
 }
 
