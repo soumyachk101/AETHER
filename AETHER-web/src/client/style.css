@@ -3106,15 +3106,24 @@ h3 {
   border-radius: 8px;
 }
 .icon-rail .rail-brand {
-  color: #222;
-  font-size: 29px;
-  font-weight: 650;
-  letter-spacing: -7px;
-  padding-right: 6px;
-  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-bottom: 14px;
+  background: transparent;
+  border: 0;
 }
-.rail-brand span {
-  color: #438c81;
+.rail-brand-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.15s ease;
+}
+.rail-brand:hover .rail-brand-img {
+  transform: scale(1.08);
 }
 .icon-rail .rail-settings {
   margin-top: auto;
@@ -3126,6 +3135,9 @@ h3 {
   padding: 23px 12px 12px;
   border-right: 1px solid var(--line);
 }
+:root[data-theme='dark'] .template-app.app .sidebar {
+  background: #1e1e20;
+}
 .template-app.app .workspace {
   margin-left: 268px;
   background: #fff;
@@ -3135,12 +3147,33 @@ h3 {
 }
 .template-app .wordmark {
   font-size: 16px;
-  letter-spacing: -0.5px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
   padding: 0 10px;
   margin-bottom: 23px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.template-app .wordmark-dot {
-  display: none;
+.wordmark-logo-img {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+  transition: transform 0.15s ease;
+}
+.wordmark:hover .wordmark-logo-img {
+  transform: scale(1.06);
+}
+.settings-header-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
 }
 .template-app .nav-item,
 .template-app .dot-nav,

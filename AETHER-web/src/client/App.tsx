@@ -315,7 +315,7 @@ export function App() {
             setSelectedThread(undefined);
           }}
         >
-          o<span>·</span>
+          <img src="/logo.png" alt="AETHER" className="rail-brand-img" />
         </button>
         <button
           aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -376,13 +376,8 @@ export function App() {
             setSelectedThread(undefined);
           }}
         >
-          <span className="dotted-logo">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          AETHER<span className="wordmark-dot">•</span>
+          <img src="/logo.png" alt="AETHER" className="wordmark-logo-img" />
+          <span>AETHER</span>
         </button>
         <button
           className="new-chat nav-item"

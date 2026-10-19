@@ -18,7 +18,6 @@ import {
   Play,
   RefreshCw,
   Server,
-  Settings2,
   Sparkles,
   Sun,
   Terminal,
@@ -260,7 +259,11 @@ export function SettingsView({
       {/* Settings Navigation Sidebar / Tabs */}
       <div className="settings-sidebar-nav">
         <div className="settings-nav-header">
-          <Settings2 size={20} className="settings-header-icon" />
+          <img
+            src="/logo.png"
+            alt="AETHER logo"
+            className="settings-header-logo-img"
+          />
           <div>
             <h3>Settings</h3>
             <span className="settings-sub">AETHER Engine & Configuration</span>
