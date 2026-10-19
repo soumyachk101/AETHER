@@ -62,6 +62,7 @@ struct NativeApp {
     task_search: String,
     selected_task: Value,
     expanded_spaces: HashMap<String, bool>,
+    pages_by_space: HashMap<String, Value>,
     page_dot: String,
     page_context: Value,
     voice_state: Value,
@@ -89,7 +90,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token, tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_screen: Value::Null, chat_tools: Vec::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, expanded_spaces: HashMap::new(), page_dot: String::new(), page_context: Value::Null, voice_state: json!({"status":"idle","phase":"listening"}), voice_commands, server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_screen: Value::Null, chat_tools: Vec::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, expanded_spaces: HashMap::new(), pages_by_space: HashMap::new(), page_dot: String::new(), page_context: Value::Null, voice_state: json!({"status":"idle","phase":"listening"}), voice_commands, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -104,7 +105,10 @@ impl NativeApp {
     fn refresh(&self) { self.request("refresh", "GET", "/state", None); self.request("workspace", "GET", "/workspace", None); }
 
     fn refresh_pages(&self) {
-        if !self.selected_space.is_empty() { self.request("pages", "GET", &format!("/spaces/{}/pages", self.selected_space), None); }
+        if !self.selected_space.is_empty() {
+            let space_id = self.selected_space.clone();
+            self.request(&format!("pages:{space_id}"), "GET", &format!("/spaces/{space_id}/pages"), None);
+        }
     }
 
     fn refresh_dot_tools(&self) {
@@ -119,6 +123,11 @@ impl NativeApp {
             match result {
                 Ok(value) => {
                     self.error = None;
+                    if let Some(space_id) = tag.strip_prefix("pages:") {
+                        self.pages_by_space.insert(space_id.to_owned(), value.clone());
+                        if self.selected_space == space_id { self.pages = value; }
+                        continue;
+                    }
                     if let Some(call_id) = tag.strip_prefix("page-review:") {
                         if let Some(call) = self.chat_tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == Some(call_id)) { call["result"] = json!(format!("Page saved: {}", value["title"].as_str().unwrap_or("page"))); }
                         self.refresh();
@@ -160,7 +169,6 @@ impl NativeApp {
                         "connection-added" => { self.connection_name.clear(); self.connection_url.clear(); self.connection_token.clear(); self.refresh_dot_tools(); }
                         "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
                         "task-detail" => self.selected_task = value,
-                        "pages" => self.pages = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
                         "capture" => self.data["capture"] = value,
                         "voice" => self.voice_state = value,
@@ -526,7 +534,7 @@ impl eframe::App for NativeApp {
             for dot in self.workspace["dots"].as_array().into_iter().flatten(){let id=dot["id"].as_str().unwrap_or("");let active=self.selected_dot==id&&self.screen==Screen::Conversations;if ui.add_sized([ui.available_width(),32.0],egui::SelectableLabel::new(active,format!("◉   {}",dot["name"].as_str().unwrap_or("Dot")))).clicked(){self.selected_dot=id.into();self.screen=Screen::Conversations;self.refresh_dot_tools();}}
             ui.add_space(10.0);ui.horizontal(|ui|{ui.label(egui::RichText::new("SPACES").size(11.0).color(egui::Color32::GRAY));ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{if ui.small_button("＋").clicked(){self.screen=Screen::Spaces;}});});
             for space in self.workspace["spaces"].as_array().into_iter().flatten(){let id=space["id"].as_str().unwrap_or("").to_owned();let expanded=*self.expanded_spaces.get(&id).unwrap_or(&false);ui.horizontal(|ui|{if ui.small_button(if expanded{"⌄"}else{"›"}).clicked(){self.expanded_spaces.insert(id.clone(),!expanded);if !expanded{self.selected_space=id.clone();self.refresh_pages();}}let active=self.selected_space==id&&self.screen==Screen::Spaces&&self.selected_page.is_empty();if ui.add_sized([ui.available_width(),28.0],egui::SelectableLabel::new(active,format!("▱  {}",space["name"].as_str().unwrap_or("Space")))).clicked(){self.selected_space=id.clone();self.selected_page.clear();self.screen=Screen::Spaces;self.refresh_pages();}});
-                if expanded{let page_items=self.pages.as_array().cloned().unwrap_or_default();for page in page_items.iter(){let pid=page["id"].as_str().unwrap_or("");let depth=page_items.iter().filter(|p|p["id"].as_str()==page["parentId"].as_str()).count().min(3);let active=self.selected_page==pid&&self.screen==Screen::Spaces;if ui.add_sized([ui.available_width(),26.0],egui::SelectableLabel::new(active,format!("{}▤  {}","  ".repeat(depth+1),page["title"].as_str().unwrap_or("Untitled")))).clicked(){self.selected_space=id.clone();self.screen=Screen::Spaces;self.request("page-read","GET",&format!("/spaces/{id}/pages/{pid}"),None);}}if page_items.is_empty(){ui.indent(format!("empty-{id}"),|ui|{ui.label(egui::RichText::new("No pages yet").small().weak());});}}
+                if expanded{let page_items=self.pages_by_space.get(&id).and_then(Value::as_array).cloned().unwrap_or_default();for page in page_items.iter(){let pid=page["id"].as_str().unwrap_or("");let depth=page_items.iter().filter(|p|p["id"].as_str()==page["parentId"].as_str()).count().min(3);let active=self.selected_page==pid&&self.screen==Screen::Spaces;if ui.add_sized([ui.available_width(),26.0],egui::SelectableLabel::new(active,format!("{}▤  {}","  ".repeat(depth+1),page["title"].as_str().unwrap_or("Untitled")))).clicked(){self.selected_space=id.clone();self.screen=Screen::Spaces;self.request("page-read","GET",&format!("/spaces/{id}/pages/{pid}"),None);}}if page_items.is_empty(){ui.indent(format!("empty-{id}"),|ui|{ui.label(egui::RichText::new("No pages yet").small().weak());});}}
             }
             ui.add_space(8.0);ui.separator();ui.horizontal(|ui|{ui.label(egui::RichText::new("RECENT CHATS").size(11.0).color(egui::Color32::GRAY));ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{if ui.small_button("＋").clicked(){self.screen=Screen::Conversations;self.conversation_title="A new thought".into();}});});
             egui::ScrollArea::vertical().id_source("recent-chats").show(ui,|ui|{for thread in self.workspace["conversations"].as_array().into_iter().flatten(){let id=thread["id"].as_str().unwrap_or("");let active=self.selected_thread==id&&self.screen==Screen::Conversations;if ui.add_sized([ui.available_width(),34.0],egui::SelectableLabel::new(active,format!("◌  {}",thread["title"].as_str().unwrap_or("Conversation")))).clicked(){self.selected_thread=id.into();self.selected_dot=thread["dotId"].as_str().unwrap_or("").into();self.chat_thread=id.into();self.chat_messages.clear();self.chat_tools.clear();self.screen=Screen::Conversations;self.data["capture"]=Value::Null;self.request("capture","GET",&format!("/conversations/{id}/capture"),None);self.request("page-context","GET",&format!("/conversations/{id}/page-context"),None);self.refresh_dot_tools();}}});
