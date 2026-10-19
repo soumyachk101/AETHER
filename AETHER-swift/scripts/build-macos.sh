@@ -19,7 +19,7 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/AETHER"
 chmod +x "$OUT/Contents/MacOS/AETHER"
 
-FRAMEWORK="$BIN_DIR/PackageFrameworks/WebRTC.framework"
+FRAMEWORK="$BIN_DIR/WebRTC.framework"
 if [[ ! -d "$FRAMEWORK" ]]; then
     echo "Missing WebRTC.framework at $FRAMEWORK" >&2
     exit 1
