@@ -12,6 +12,7 @@ struct ChatMessage: Identifiable, Codable {
     var toolCallId: String? = nil
     var decision: Bool? = nil
     var actionError: String? = nil
+    var parentAssistantId: String? = nil
 }
 
 struct AnyCodable: Codable { let value: Any
@@ -27,7 +28,7 @@ final class ConversationClient: ObservableObject {
     @Published var error: String?
 
     func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async -> Bool {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !sending else { return false }
+        guard !sending else { return false }
         sending = true
         error = nil
         defer { sending = false }
@@ -46,9 +47,11 @@ final class ConversationClient: ObservableObject {
             let cleanTitle = title.filter { !"[]\\\r\n".contains($0) }
             content = "From [\(cleanTitle)](/#/spaces/\(spaceId)/pages/\(pageId)):\n\n\(text)"
         }
-        messages.append(ChatMessage(role: "user", text: content))
-        let assistant = ChatMessage(role: "assistant", text: "")
-        messages.append(assistant)
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.append(ChatMessage(role: "user", text: content))
+            messages.append(ChatMessage(role: "assistant", text: ""))
+        }
+        guard let assistant = messages.last(where: { $0.role == "assistant" }) else { return false }
         let url = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("copilotkit")
@@ -118,13 +121,13 @@ final class ConversationClient: ObservableObject {
             }
             guard message.role == "user" || message.role == "assistant" else { return nil }
             var item: [String: Any] = ["id": message.id, "role": message.role, "content": message.text]
-            let calls = messages.filter { $0.role == "tool" && $0.id == message.id }
+            let calls = messages.filter { $0.role == "tool" && $0.parentAssistantId == message.id && $0.tool != nil }
             if !calls.isEmpty { item["toolCalls"] = calls.compactMap { call in guard let id = call.toolCallId, let name = call.tool else { return nil }; return ["id": id, "name": name, "arguments": call.arguments?.mapValues { $0.value } ?? [:]] as [String: Any] } }
             return item
         }
     }
 
-    func decideTool(_ messageId: String, approve: Bool, threadId: String, baseURL: URL, token: String?) async {
+    func decideTool(_ messageId: String, approve: Bool, dotId: String, threadId: String, baseURL: URL, token: String?) async {
         guard let index = messages.firstIndex(where: { $0.id == messageId }), let tool = messages[index].tool, let callId = messages[index].toolCallId else { return }
         do {
             var result: [String: Any]
@@ -144,23 +147,9 @@ final class ConversationClient: ObservableObject {
             messages[index].result = String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)
             let toolResult = ChatMessage(role: "tool", text: "", result: messages[index].result, toolCallId: callId)
             messages.append(toolResult)
-            _ = await sendContinuation(threadId: threadId, baseURL: baseURL, token: token)
+            messages.append(ChatMessage(role: "assistant", text: ""))
+            _ = await send("", dotId: dotId, threadId: threadId, baseURL: baseURL, token: token)
         } catch { messages[index].actionError = error.localizedDescription }
-    }
-
-    private func sendContinuation(threadId: String, baseURL: URL, token: String?) async -> Bool {
-        // The run endpoint accepts a fresh run containing the completed tool result in AG-UI history.
-        return await runAgain(threadId: threadId, baseURL: baseURL, token: token)
-    }
-
-    private func runAgain(threadId: String, baseURL: URL, token: String?) async -> Bool {
-        guard !sending else { return false }; sending = true; defer { sending = false }
-        do {
-            let context = try await api("/api/conversations/\(threadId)/page-context", baseURL: baseURL, token: token)
-            let dotId = messages.first(where: { $0.role == "user" }) == nil ? "" : ""
-            _ = context; _ = dotId
-            return false
-        } catch { error = error.localizedDescription; return false }
     }
 
     private func consume(eventType: String, dataLines: [String], assistantId: String) {
@@ -188,7 +177,7 @@ final class ConversationClient: ObservableObject {
         case "TOOL_CALL_START":
             guard let id = string("toolCallId"), !id.isEmpty else { return }
             if let i = toolIndex(id) { messages[i].tool = string("toolCallName") ?? messages[i].tool }
-            else { messages.append(ChatMessage(id: UUID().uuidString, role: "tool", text: "", tool: string("toolCallName"), toolCallId: id)) }
+            else { messages.append(ChatMessage(id: UUID().uuidString, role: "tool", text: "", tool: string("toolCallName"), toolCallId: id, parentAssistantId: assistantId)) }
         case "TOOL_CALL_ARGS":
             guard let id = string("toolCallId"), let delta = string("delta"), let i = toolIndex(id) else { return }
             messages[i].rawToolArguments += delta

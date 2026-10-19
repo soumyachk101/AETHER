@@ -483,34 +483,24 @@ struct RootView: View {
             Text((args["summary"] as? String) ?? (args["title"] as? String) ?? "Tool request")
             if let content = args["content"] as? String { Text(content).lineLimit(12) }
             if tool == "request_connection_action", !approvalPreview.isEmpty, approvalPreviewID == message.id { Text(approvalPreview).font(.caption).textSelection(.enabled) }
-            if let result = message.result { Text(result).textSelection(.enabled) }
+            if let error = message.actionError { Text(error).font(.caption).foregroundStyle(.red) }
+            if let result = message.result { Text(message.decision == false ? "Declined" : message.decision == true ? "Approved · \(result)" : result).textSelection(.enabled) }
             if tool == "review_space_page" || tool == "request_connection_action" {
-                HStack { Button("Approve") { Task { await approveTool(message, tool: tool, args: args) } }.buttonStyle(.borderedProminent).disabled(message.result != nil); Button("Decline") { updateTool(message.id, result:"Declined by owner") }.disabled(message.result != nil) }
+                if message.result == nil {
+                    HStack {
+                        Button("Approve") { Task { await decideTool(message, approve: true) } }.buttonStyle(.borderedProminent).disabled(chat.sending)
+                        Button("Decline") { Task { await decideTool(message, approve: false) } }.disabled(chat.sending)
+                        if chat.sending { ProgressView("Continuing…").controlSize(.small) }
+                    }
+                } else if message.actionError == nil { Text("Decision sent to the Dot.").font(.caption).foregroundStyle(.secondary) }
             }
         }.padding(12).frame(maxWidth:.infinity, alignment:.leading).background(.blue.opacity(0.06), in:RoundedRectangle(cornerRadius:12))
     }
-    private func updateTool(_ id: String, result: String) { if let i = chat.messages.firstIndex(where:{$0.id == id}) { chat.messages[i].result = result } }
-    private func approveTool(_ message: ChatMessage, tool: String, args: [String:Any]) async {
+    private func decideTool(_ message: ChatMessage, approve: Bool) async {
         guard let base = data.base else { return }
-        do {
-            if tool == "review_space_page" {
-                var payload = args; payload["toolCallId"] = message.toolCallId ?? message.id
-                let saved = try await chat.api("/api/conversations/\(selectedThread)/reviewed-page", method:"POST", body:payload, baseURL:base, token:data.token)
-                updateTool(message.id, result:"Page saved: \(data.str(saved,"title")) (\(data.str(saved,"id")))"); await data.refresh()
-            } else {
-                guard let approvalId = args["approvalId"] as? String else { throw NSError(domain:"AETHER",code:1,userInfo:[NSLocalizedDescriptionKey:"Missing approval ID."]) }
-                if approvalPreviewID != message.id {
-                    let approval = try await chat.api("/api/conversations/\(selectedThread)/connection-approvals/\(approvalId)", baseURL:base, token:data.token)
-                    approvalPreviewID = message.id
-                    approvalPreview = "Exact stored arguments:\n" + String(data: try JSONSerialization.data(withJSONObject: approval["arguments"] ?? [:], options:.prettyPrinted), encoding:.utf8)!
-                    return
-                }
-                let result = try await chat.api("/api/conversations/\(selectedThread)/connection-actions", method:"POST", body:["toolCallId":message.toolCallId ?? message.id,"approvalId":approvalId], baseURL:base, token:data.token)
-                updateTool(message.id, result:String(describing:result))
-            }
-        } catch { data.alert = error.localizedDescription }
+        await chat.decideTool(message.id, approve: approve, dotId: selectedDot, threadId: selectedThread, baseURL: base, token: data.token)
+        if chat.error == nil { await data.refresh() }
     }
-
 }
 
 private struct LaunchView: View {
