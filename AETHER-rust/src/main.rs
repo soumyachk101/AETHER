@@ -42,10 +42,14 @@ struct Conversation {
 
 #[derive(Deserialize)]
 struct Workspace {
+    spaces: Vec<Space>,
     dots: Vec<Dot>,
     conversations: Vec<Conversation>,
     setup: Setup,
 }
+
+#[derive(Clone, Deserialize)]
+struct Space { id: String, name: String, description: String }
 
 #[derive(Deserialize)]
 struct Setup {
@@ -66,6 +70,10 @@ struct Client {
     workspace: Option<Workspace>,
     selected_thread: Option<String>,
     selected_dot: Option<String>,
+    view: String,
+    space_name: String,
+    page_title: String,
+    page_content: String,
     error: Option<String>,
     startup_error: Option<String>,
     start_pending: bool,
@@ -238,7 +246,7 @@ impl eframe::App for Client {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("OpenDots");
-            ui.label("Your local workspace");
+            ui.label("Your workspace");
             ui.separator();
             if self.start_pending {
                 ui.spinner();
@@ -277,6 +285,42 @@ impl eframe::App for Client {
             }
 
             let configured = self.state.as_ref().is_some_and(|state| state.configured);
+            ui.horizontal(|ui| {
+                for (label, view) in [("Chat", "chat"), ("Spaces & Pages", "spaces"), ("Tasks", "tasks"), ("Settings", "settings")] {
+                    if ui.selectable_label(self.view == view, label).clicked() { self.view = view.into(); }
+                }
+            });
+            ui.separator();
+            if self.view == "spaces" {
+                ui.heading("Spaces");
+                if let Some(w) = &self.workspace {
+                    for space in &w.spaces { ui.group(|ui| { ui.strong(&space.name); ui.label(&space.description); }); }
+                }
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.space_name).hint_text("Space name"));
+                    if ui.add_enabled(!self.action_pending && !self.space_name.trim().is_empty(), egui::Button::new("Create Space")).clicked() {
+                        self.action("/api/spaces".into(), serde_json::json!({"name": self.space_name.trim(), "description": ""}), false);
+                        self.space_name.clear();
+                    }
+                });
+                let first_space = self.workspace.as_ref().and_then(|w| w.spaces.first()).map(|s| (s.id.clone(), s.name.clone()));
+                if let Some((space_id, space_name)) = first_space {
+                    ui.separator(); ui.heading(format!("Pages · {}", space_name));
+                    ui.add(egui::TextEdit::singleline(&mut self.page_title).hint_text("Page title"));
+                    ui.add(egui::TextEdit::multiline(&mut self.page_content).desired_rows(8).hint_text("Write a page…"));
+                    if ui.add_enabled(!self.action_pending && !self.page_title.trim().is_empty(), egui::Button::new("Create page in this Space")).clicked() {
+                        self.action(format!("/api/spaces/{}/pages", space_id), serde_json::json!({"title": self.page_title.trim(), "content": self.page_content, "parentId": null}), false);
+                        self.page_title.clear(); self.page_content.clear();
+                    }
+                }
+                ctx.request_repaint_after(Duration::from_millis(250)); return;
+            }
+            if self.view == "settings" {
+                ui.heading("Settings");
+                ui.label("Workspace settings are available through the server API; native editing is not wired yet.");
+                ui.label("Conversation transcripts and live chat streaming are not exposed by the current native client.");
+                return;
+            }
             let missing = self.workspace.as_ref().map(|workspace| workspace.setup.missing.clone()).unwrap_or_default();
             let workspace = self.workspace.as_ref().map(|workspace| (
                 workspace.dots.clone(),
@@ -386,6 +430,10 @@ fn main() {
                 workspace: None,
                 selected_thread: None,
                 selected_dot: None,
+                view: "chat".into(),
+                space_name: String::new(),
+                page_title: String::new(),
+                page_content: String::new(),
                 error: None,
                 startup_error: None,
                 start_pending: true,
