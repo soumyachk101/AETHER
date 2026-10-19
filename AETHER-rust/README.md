@@ -1,10 +1,10 @@
-# dibi AETHER (Rust)
+# AETHER (Rust)
 
-A small native desktop shell for OpenDots. It opens a `tao` window, embeds the
-OpenDots web app in the OS webview (`wry`), starts the local Node server on
+A native desktop shell for AETHER. It opens a `tao` window, embeds the
+AETHER web workspace in the native OS webview (`wry`), starts the local Node server on
 `127.0.0.1:4310`, and stops that server when the window closes.
 
-The crate is named `dibi-aether`; the binary is `aether`. Platform packaging
+The crate is named `aether`; the binary is `aether`. Platform packaging
 renames the executable to `AETHER` (`AETHER.exe` on Windows).
 
 ## Prerequisites
@@ -12,19 +12,11 @@ renames the executable to `AETHER` (`AETHER.exe` on Windows).
 ### Windows
 
 - Windows 10/11 with the Microsoft Edge WebView2 Evergreen Runtime installed
-  on the target machine (usually preinstalled; otherwise install the Evergreen
-  Runtime from Microsoft).
+  on the target machine.
 - Node.js 24 or newer.
 - Rust 1.85+ with the MSVC toolchain (`rustup default stable-msvc`) and Visual
   Studio Build Tools with the C++ workload.
-- The web app must be installed and built (run in the OpenDots app directory,
-  i.e. the directory containing `package.json` with `"name": "opendots"` —
-  `AETHER-web/` in this repository):
-
-  ```powershell
-  npm ci
-  npm run build
-  ```
+- The web app must be installed and built (run `npm ci && npm run build` in `AETHER-web/`).
 
 ### Linux
 
@@ -38,8 +30,7 @@ sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
 ```
 
 Then install Node.js 24+, Rust 1.85+, and build the web app as above
-(`npm ci && npm run build`). On Fedora the equivalents are `webkit2gtk4.1-devel`,
-`gtk3-devel`, `libsoup3-devel`, and `javascriptcoregtk4.1-devel`.
+(`npm ci && npm run build` in `AETHER-web/`).
 
 ## Build and run
 
@@ -50,15 +41,15 @@ cargo build --release  # release
 ./target/release/aether
 ```
 
-`cargo run` locates the OpenDots root by walking up from the current directory
-and the executable. If the app lives elsewhere, set `OPENDOTS_ROOT` (see below).
+`cargo run` locates the AETHER project root by walking up from the current directory
+and the executable. If the app lives elsewhere, set `AETHER_ROOT` (see below).
 AETHER starts the already-built server; it does not run `npm install`.
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENDOTS_ROOT` | auto-detected | Absolute path to the OpenDots app root (contains `package.json` with `name: opendots` and `src/server/index.ts`). |
+| `AETHER_ROOT` / `OPENDOTS_ROOT` | auto-detected | Absolute path to the AETHER app root (contains `package.json` and `src/server/index.ts`). |
 | `AETHER_URL` / `OPENDOTS_URL` | `http://127.0.0.1:<port>/` | Attach to an already-running server instead of starting one. No child process is spawned or killed. |
 | `PORT` / `AETHER_PORT` | `4310` | Port used for the embedded server and URL. `AETHER_PORT` is the AETHER-specific override. |
 | `OWNER_TOKEN` | unset | Forwarded to the server environment when the instance requires an owner token. |
@@ -76,28 +67,22 @@ AETHER starts the already-built server; it does not run `npm install`.
 
 ## Logs
 
-- Windows: `%LOCALAPPDATA%\dibi-aether\server.log`
-- Linux: `$XDG_DATA_HOME/dibi-aether/server.log` (normally
-  `~/.local/share/dibi-aether/server.log`)
+- Windows: `%LOCALAPPDATA%\aether\server.log`
+- Linux: `$XDG_DATA_HOME/aether/server.log` (normally
+  `~/.local/share/aether/server.log`)
+- macOS: `~/Library/Logs/aether/server.log`
 
 The log contains server output plus AETHER lifecycle messages.
 
 ## Troubleshooting
 
-- **"Could not find the OpenDots project"** — set `OPENDOTS_ROOT` to the
-  directory containing the `package.json` whose name is `opendots`.
-- **Missing `dist` / entry point** — run `npm ci && npm run build` in the app
-  directory. AETHER only serves what is already built.
+- **"Could not find the AETHER project"** — set `AETHER_ROOT` to the
+  directory containing the `package.json`.
+- **Missing `dist` / entry point** — run `npm ci && npm run build` in `AETHER-web/`.
 - **`node` not found** — GUI launches may not inherit your shell `PATH` on
   Linux. Start AETHER from a terminal, or put `node` on the system `PATH`
   (`/usr/local/bin`). Confirm with `node --version` (must be 24+).
 - **WebKitGTK errors on Linux** — wry 0.57 needs WebKitGTK 4.1 and libsoup 3.
-  Ubuntu 22.04+ provides them; older releases need a newer distro or a
-  source-built WebKitGTK. "libwebkit2gtk-4.0" mismatches mean 4.1 is missing.
-- **White or blank window** — check the log for a failed server start. If the
-  server is healthy, try `WEBKIT_DISABLE_COMPOSITING_MODE=1` (or
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1` on recent WebKitGTK) to rule out GPU
-  driver issues, and verify `dist/client` assets were built.
 - **Port already in use** — set `AETHER_PORT` (or `PORT`) to a free port, or
   start the server yourself and use `AETHER_URL`.
 
@@ -116,8 +101,7 @@ the platform script from this crate directory:
 
 Each script compiles a release binary and places a portable bundle under
 `dist/<platform>/`. Launch `dist/linux/AETHER` on Linux or
-`dist/windows/AETHER.exe` on Windows. Each bundle includes a README with launch
-and environment-variable instructions.
+`dist/windows/AETHER.exe` on Windows.
 
 ## Architecture
 
@@ -125,4 +109,4 @@ and environment-variable instructions.
 at the local URL. A server supervisor owns the Node child process and health
 poll and is shut down on exit. `dirs` supplies the per-platform data directory
 for logs; `webbrowser` opens external links. There is no separate Rust UI layer:
-all UI is the OpenDots web app itself.
+all UI is the AETHER web workspace itself.

@@ -1,4 +1,4 @@
-# Builds the OpenDots desktop shell for Windows (PowerShell 5+).
+# Builds the AETHER desktop shell for Windows (PowerShell 5+).
 # Usage:
 #   .\scripts\build-windows.ps1
 #   .\scripts\build-windows.ps1 -Sign -CertificatePath C:\path\to\cert.pfx
@@ -21,7 +21,7 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "cargo was not found in PATH. Install Rust 1.85+ from https://rustup.rs."
 }
 
-Write-Host "==> Building dibi-aether (release)"
+Write-Host "==> Building AETHER (release)"
 & cargo build --release
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build --release failed with exit code $LASTEXITCODE."
@@ -42,30 +42,30 @@ $TargetExe = Join-Path $DistDir "AETHER.exe"
 Copy-Item -Path $BuiltExe -Destination $TargetExe -Force
 
 $Readme = @'
-dibi AETHER (Windows)
-=====================
+AETHER (Windows)
+================
 
 Run:
   .\AETHER.exe
 
-The app starts the OpenDots Node server on 127.0.0.1:4310 and stops it on exit.
-The web app must already be built (npm ci && npm run build in the OpenDots app
-directory). If it lives elsewhere, set OPENDOTS_ROOT to its absolute path.
+The app starts the AETHER Node server on 127.0.0.1:4310 and stops it on exit.
+The web app must already be built (npm ci && npm run build in AETHER-web/).
+If it lives elsewhere, set AETHER_ROOT to its absolute path.
 
 Requirements: Microsoft Edge WebView2 Runtime, Node.js 24+ in PATH, and the
-OpenDots dist/ output.
+AETHER dist/ output.
 
 Environment overrides:
-  OPENDOTS_ROOT   OpenDots project root (contains package.json and src\server\index.ts)
+  AETHER_ROOT     AETHER project root (contains package.json and src\server\index.ts)
   AETHER_URL      Attach to an existing server instead of starting one
   AETHER_PORT     Port for the local server (default 4310; PORT also works)
   OWNER_TOKEN     Owner token forwarded to the server
 
 Log:
-  %LOCALAPPDATA%\dibi-aether\server.log
+  %LOCALAPPDATA%\aether\server.log
 
 There is no installer; this folder is portable. Keep AETHER.exe alongside
-any files you want to ship, or copy it anywhere and set OPENDOTS_ROOT.
+any files you want to ship, or copy it anywhere and set AETHER_ROOT.
 '@
 Set-Content -Path (Join-Path $DistDir "README.txt") -Value $Readme -Encoding ASCII
 
