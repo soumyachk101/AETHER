@@ -1,16 +1,27 @@
 # Ignore everything at root
 /*
 
-# Whitelist allowed directories & config
+# Whitelist allowed directories & files
 !/.gitignore
+!/README.md
+!/LICENSE
+!/docs/
+!/auto_sync.sh
+!/.github/
 !/AETHER-rust/
 !/AETHER-swift/
+!/AETHER-web/
 
-# Standard build ignores
+# Standard build & secret ignores
 AETHER-rust/target/
 AETHER-rust/dist/
 AETHER-swift/.build/
 AETHER-swift/dist/
+AETHER-web/node_modules/
+AETHER-web/dist/
+AETHER-web/data/
+AETHER-web/.env
+AETHER-web/.env.local
+AETHER-web/.env.*.local
 .DS_Store
 agent.md
-
