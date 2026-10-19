@@ -53,6 +53,7 @@ struct Setup {
 }
 
 enum ApiMessage {
+    Started(Result<(String, Option<server::OwnedServer>), String>),
     Refreshed(Result<(State, Workspace), String>),
     Action(Result<(), String>, bool),
 }
@@ -67,6 +68,7 @@ struct Client {
     selected_dot: Option<String>,
     error: Option<String>,
     startup_error: Option<String>,
+    start_pending: bool,
     http: reqwest::blocking::Client,
     refresh_at: Instant,
     refresh_pending: bool,
@@ -109,7 +111,7 @@ fn request<T: DeserializeOwned>(
 
 impl Client {
     fn refresh(&mut self) {
-        if self.refresh_pending || self.startup_error.is_some() {
+        if self.refresh_pending || self.start_pending || self.startup_error.is_some() {
             return;
         }
         self.refresh_pending = true;
@@ -168,6 +170,20 @@ impl Client {
     fn receive_updates(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             match message {
+                ApiMessage::Started(result) => {
+                    self.start_pending = false;
+                    match result {
+                        Ok((url, owned_server)) => {
+                            self.base_url = url;
+                            *self.supervisor.borrow_mut() = owned_server;
+                            self.refresh_at = Instant::now();
+                        }
+                        Err(error) => {
+                            self.startup_error = Some(error.clone());
+                            self.error = Some(error);
+                        }
+                    }
+                }
                 ApiMessage::Refreshed(result) => {
                     self.refresh_pending = false;
                     match result {
@@ -216,7 +232,7 @@ impl eframe::App for Client {
                 self.error = Some(message);
             }
         }
-        if !self.refresh_pending && Instant::now() >= self.refresh_at {
+        if !self.start_pending && !self.refresh_pending && Instant::now() >= self.refresh_at {
             self.refresh();
         }
 
@@ -224,6 +240,12 @@ impl eframe::App for Client {
             ui.heading("OpenDots");
             ui.label("Your local workspace");
             ui.separator();
+            if self.start_pending {
+                ui.spinner();
+                ui.label("Starting the OpenDots server…");
+                ctx.request_repaint_after(Duration::from_millis(100));
+                return;
+            }
             if let Some(message) = &self.startup_error {
                 ui.colored_label(egui::Color32::LIGHT_RED, format!("Could not start OpenDots: {message}"));
                 ui.label("Check the AETHER server log and confirm Node.js and the built app are available.");
@@ -330,13 +352,6 @@ impl eframe::App for Client {
 }
 
 fn main() {
-    let (url, supervisor, failure) = match server::launch() {
-        Ok((url, child)) => (url, child, None),
-        Err(error) => {
-            server::record_failure(&error);
-            ("http://127.0.0.1:4310".to_owned(), None, Some(error))
-        }
-    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("OpenDots")
@@ -344,15 +359,27 @@ fn main() {
             .with_min_inner_size([700.0, 520.0]),
         ..Default::default()
     };
-    let supervisor = Rc::new(RefCell::new(supervisor));
+    let supervisor = Rc::new(RefCell::new(None));
     let app_supervisor = supervisor.clone();
     let (tx, rx) = mpsc::channel();
+    let startup_tx = tx.clone();
+    thread::spawn(move || {
+        let result = server::launch();
+        if let Err(error) = &result {
+            server::record_failure(error);
+        }
+        if let Err(error) = startup_tx.send(ApiMessage::Started(result)) {
+            if let ApiMessage::Started(Ok((_url, mut owned_server))) = error.0 {
+                server::stop(&mut owned_server);
+            }
+        }
+    });
     let result = eframe::run_native(
         "OpenDots",
         options,
         Box::new(move |_cc| {
             Ok(Box::new(Client {
-                base_url: url,
+                base_url: String::new(),
                 token: server::owner_token().unwrap_or_default(),
                 prompt: String::new(),
                 state: None,
@@ -360,7 +387,8 @@ fn main() {
                 selected_thread: None,
                 selected_dot: None,
                 error: None,
-                startup_error: failure,
+                startup_error: None,
+                start_pending: true,
                 http: reqwest::blocking::Client::builder()
                     .timeout(Duration::from_secs(15))
                     .build()
