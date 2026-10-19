@@ -4,7 +4,10 @@ import { PhoneOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { AssistantMessage, Message } from '@ag-ui/core';
 import type { CallReceipt } from '../shared/types';
-import { voiceReceiptMessagePrefix } from '../shared/voice-receipt';
+import {
+  voiceReceiptMessagePrefix,
+  legacyVoiceReceiptMessagePrefix,
+} from '../shared/voice-receipt';
 import { isScheduledTaskMessage } from '../shared/scheduled-message';
 // These markers only control rendering; they do not confer trust or permissions.
 export function isInternalVoiceReceipt(message: Message): boolean {
@@ -12,6 +15,7 @@ export function isInternalVoiceReceipt(message: Message): boolean {
   return (
     message.role === 'user' &&
     (message.id.startsWith(voiceReceiptMessagePrefix) ||
+      message.id.startsWith(legacyVoiceReceiptMessagePrefix) ||
       (!!metadata &&
         typeof metadata === 'object' &&
         (('aetherSource' in metadata && metadata.aetherSource === 'voice_receipt') ||
