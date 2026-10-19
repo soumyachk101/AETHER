@@ -381,7 +381,7 @@ final class ServerController: ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
-            // 401 is still a healthy OpenDots server that needs an owner token.
+            // 401 is still a healthy AETHER server that needs an owner token.
             return (200..<500).contains(http.statusCode)
         } catch {
             return false
@@ -437,11 +437,11 @@ final class ServerController: ObservableObject {
                 ? candidate
                 : candidate.deletingLastPathComponent()
             for _ in 0..<16 {
-                if isOpenDotsRoot(directory) {
+                if isAetherRoot(directory) {
                     return directory.standardizedFileURL
                 }
                 let nestedApp = directory.appendingPathComponent("AETHER-web", isDirectory: true)
-                if isOpenDotsRoot(nestedApp) {
+                if isAetherRoot(nestedApp) {
                     return nestedApp.standardizedFileURL
                 }
                 let parent = directory.deletingLastPathComponent()
@@ -452,7 +452,7 @@ final class ServerController: ObservableObject {
         return nil
     }
 
-    private static func isOpenDotsRoot(_ directory: URL) -> Bool {
+    private static func isAetherRoot(_ directory: URL) -> Bool {
         let package = directory.appendingPathComponent("package.json")
         let server = directory.appendingPathComponent("src/server/index.ts")
         guard FileManager.default.fileExists(atPath: server.path),
