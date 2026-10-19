@@ -480,6 +480,8 @@ struct RootView: View {
         let args = message.arguments?.mapValues { $0.value } ?? [:]
         VStack(alignment: .leading, spacing: 8) {
             Text(tool).font(.headline)
+            Text(message.result == nil ? "Needs your approval" : message.decision == false ? "Declined" : message.actionError == nil ? "Completed" : "Error")
+                .font(.caption).foregroundStyle(message.actionError == nil ? Color.secondary : Color.red)
             Text((args["summary"] as? String) ?? (args["title"] as? String) ?? "Tool request")
             if let content = args["content"] as? String { Text(content).lineLimit(12) }
             if tool == "request_connection_action", !approvalPreview.isEmpty, approvalPreviewID == message.id { Text(approvalPreview).font(.caption).textSelection(.enabled) }

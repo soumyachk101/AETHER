@@ -116,13 +116,19 @@ final class ConversationClient: ObservableObject {
     private func runHistory() -> [[String: Any]] {
         messages.compactMap { message in
             if message.role == "tool" {
+                if message.tool != nil { return nil }
                 guard let callId = message.toolCallId else { return nil }
                 return ["id": message.id, "role": "tool", "toolCallId": callId, "content": message.result ?? ""]
             }
             guard message.role == "user" || message.role == "assistant" else { return nil }
             var item: [String: Any] = ["id": message.id, "role": message.role, "content": message.text]
             let calls = messages.filter { $0.role == "tool" && $0.parentAssistantId == message.id && $0.tool != nil }
-            if !calls.isEmpty { item["toolCalls"] = calls.compactMap { call in guard let id = call.toolCallId, let name = call.tool else { return nil }; return ["id": id, "name": name, "arguments": call.arguments?.mapValues { $0.value } ?? [:]] as [String: Any] } }
+            if !calls.isEmpty { item["toolCalls"] = calls.compactMap { call in
+                guard let id = call.toolCallId, let name = call.tool,
+                      let data = try? JSONSerialization.data(withJSONObject: call.arguments?.mapValues { $0.value } ?? [:]),
+                      let arguments = String(data: data, encoding: .utf8) else { return nil }
+                return ["id": id, "type": "function", "function": ["name": name, "arguments": arguments]] as [String: Any]
+            } }
             return item
         }
     }
