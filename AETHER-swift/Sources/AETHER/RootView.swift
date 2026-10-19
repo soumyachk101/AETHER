@@ -228,7 +228,7 @@ struct RootView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(voice.status == "idle" ? "Start voice call" : voice.status == "ending" ? "Ending…" : "End call") {
-                    if voice.status == "idle" { Task { if let base = data.base { await voice.start(threadId: selectedThread, baseURL: base, token: data.token, anchorMessageId: nil) } } }
+                    if voice.status == "idle" { Task { if let base = data.base { await voice.start(threadId: selectedThread, baseURL: base, token: data.token, anchorMessageId: chat.messages.last(where: { $0.role == "user" || $0.role == "assistant" })?.id) } } }
                     else { Task { await voice.end() } }
                 }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty || voice.status == "ending")
                 if voice.status != "idle" {

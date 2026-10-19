@@ -18,8 +18,10 @@ final class VoiceClient: NSObject, ObservableObject {
     private var token: String?
     private var anchorMessageId: String?
     private var peer: RTCPeerConnection?
+    private var factory: RTCPeerConnectionFactory?
     private var channel: RTCDataChannel?
     private var audioTrack: RTCAudioTrack?
+    private var remoteAudioTrack: RTCAudioTrack?
     private var callId: String?
     private var transcript: [String] = []
     private var pollTask: Task<Void, Never>?
@@ -34,8 +36,8 @@ final class VoiceClient: NSObject, ObservableObject {
         phase = "listening"; caption = ""; userCaption = ""; transcript = []; elapsed = 0
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                RTCPeerConnectionFactory.initializeSSL()
                 let factory = RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
+                self.factory = factory
                 let config = RTCConfiguration(); config.sdpSemantics = .unifiedPlan
                 let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
                 guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
@@ -77,7 +79,7 @@ final class VoiceClient: NSObject, ObservableObject {
     }
 
     func toggleMute() { muted.toggle(); audioTrack?.isEnabled = !muted }
-    func toggleSpeaker() { speakerMuted.toggle(); RTCAudioSession.sharedInstance().isAudioEnabled = !speakerMuted }
+    func toggleSpeaker() { speakerMuted.toggle(); remoteAudioTrack?.isEnabled = !speakerMuted }
 
     func end() async {
         guard status != "idle", status != "ending" else { return }
@@ -118,8 +120,7 @@ final class VoiceClient: NSObject, ObservableObject {
     private func cleanup() {
         pollTask?.cancel(); limitTask?.cancel(); durationTask?.cancel(); disconnectTask?.cancel()
         channel?.delegate = nil; channel?.close(); peer?.close()
-        channel = nil; peer = nil; audioTrack = nil; callId = nil
-        RTCPeerConnectionFactory.deinitializeSSL()
+        channel = nil; peer = nil; factory = nil; audioTrack = nil; remoteAudioTrack = nil; callId = nil
     }
 
     private func receive(_ text: String) {
@@ -147,15 +148,20 @@ final class VoiceClient: NSObject, ObservableObject {
         catch { output = "Compute failed: \(error.localizedDescription)" }
         guard let channel, channel.readyState == .open else { return }
         for value in [["type":"conversation.item.create", "item":["type":"function_call_output", "call_id":call, "output":output]], ["type":"response.create"]] {
-            if let data = try? JSONSerialization.data(withJSONObject: value), let buffer = RTCDataBuffer(data: data, isBinary: false) { channel.sendData(buffer) }
+            if let data = try? JSONSerialization.data(withJSONObject: value) { channel.sendData(RTCDataBuffer(data: data, isBinary: false)) }
         }
     }
 }
 
 extension VoiceClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange state: RTCSignalingState) {}
-    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
-    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
+        guard let track = stream.audioTracks.first else { return }
+        Task { @MainActor in remoteAudioTrack = track; track.isEnabled = !speakerMuted }
+    }
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
+        Task { @MainActor in remoteAudioTrack = nil }
+    }
     nonisolated func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         Task { @MainActor in
