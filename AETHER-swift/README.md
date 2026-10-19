@@ -1,19 +1,28 @@
-# AETHER for macOS
+# AETHER Swift desktop app
 
-AETHER is a native macOS SwiftUI desktop client for OpenDots. It supervises the local Node server on `127.0.0.1:4310` and uses the server's JSON API and CopilotKit stream directly. It does not embed a browser or web UI.
+AETHER is a native macOS desktop shell for the OpenDots web app. It starts the local
+Node server when needed, embeds it in native WKWebView, and stops only the
+server process it started.
 
 ## Requirements
 
 - macOS 13 or later, Xcode Command Line Tools, and Swift 5.9 or later.
-- Node.js 24 or later and the OpenDots app in `AETHER-web/` to start the local server. Run `npm ci` and `npm run build` in `AETHER-web/`.
+- Node.js 24 or later and the OpenDots web app in `AETHER-web/`. Run `npm ci` and `npm run build` in `AETHER-web/`.
 
 ## Build
+
+Run the macOS build script:
 
 ```sh
 AETHER-swift/scripts/build-macos.sh
 ```
 
 The application bundle is written to `AETHER-swift/dist/macos/AETHER.app`.
+Run it with:
+
+```sh
+open AETHER-swift/dist/macos/AETHER.app
+```
 
 To run directly from source with SwiftPM:
 
@@ -24,19 +33,18 @@ swift run
 
 ## Features
 
-- **Native workspace**: Home, Dots, conversations, Spaces and pages, scheduled activity, memories, and settings are rendered with SwiftUI.
-- **Workspace actions**: Create and edit Dots, create Spaces, search and manage pages, schedule and manage tasks, and add, edit, or remove memories.
-- **Native chat and voice**: Sends turns through the CopilotKit event stream and provides native WebRTC voice calls with captions, compute requests, and call receipts.
+- **Full OpenDots Web Experience**: Renders the exact UI and features of OpenDots (`AETHER-web`) including CopilotKit conversational AI, TipTap rich text documents & markdown editor, Spaces, Pages, task activity, and connected services.
+- **Native Chat & Voice**: Native WebRTC voice calls and media capture with microphone permissions automatically granted via WKWebView.
 - **Server Lifecycle Supervision**: Auto-discovers `AETHER-web/`, compiles artifacts with `npm run build` if missing, starts the local server on `127.0.0.1:4310`, and cleanly shuts down the child process on application termination.
-- **Authentication**: Reads `OWNER_TOKEN` from `.env` or the environment and sends it as bearer authorization to the local API.
+- **Authentication**: Reads `OWNER_TOKEN` from `.env` or the environment and injects it into `sessionStorage` at document start for instant authentication.
 - **Native Desktop Menus & Shortcuts**:
+  - `Cmd+R`: Reload web view
+  - `Cmd+Shift+O`: Open current page in default browser
   - `Cmd+Opt+R`: Restart local server
   - Open project folder in Finder
   - Reveal server log in Finder
 - **Settings Scene**: Custom project root selection, port configuration, and live server logs.
 - **Diagnostics & Error Recovery**: In-app console showing real-time server output with instant retry controls if the server fails to bind or exits.
-
-Conversation history is not exposed by the server API, so chat messages are held in memory for the current app session. Computer control and connected-service approvals use the native client’s API-driven controls and do not cover every web-only interaction.
 
 ## Server Output & Logs
 
