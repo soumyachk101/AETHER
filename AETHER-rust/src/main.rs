@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod server;
+mod voice;
 
 use eframe::egui;
 use serde_json::{json, Value};
@@ -62,6 +63,8 @@ struct NativeApp {
     selected_task: Value,
     page_dot: String,
     page_context: Value,
+    voice_state: Value,
+    voice_commands: tokio::sync::mpsc::UnboundedSender<voice::Command>,
     server: Arc<Mutex<Option<server::OwnedServer>>>,
 }
 
@@ -80,10 +83,12 @@ fn api_call(base: String, token: Option<String>, method: &str, path: &str, body:
 impl NativeApp {
     fn new(url: String, server: Option<server::OwnedServer>) -> Self {
         let (tx, rx) = mpsc::channel();
+        let token=server::owner_token();
+        let voice_commands=voice::start_worker(url.trim_end_matches('/').to_owned(),token.clone(),tx.clone());
         let app = Self {
-            base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
+            base: url.trim_end_matches('/').to_owned(), token, tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_screen: Value::Null, chat_tools: Vec::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), page_context: Value::Null, server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_screen: Value::Null, chat_tools: Vec::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), page_context: Value::Null, voice_state: json!({"status":"idle","phase":"listening"}), voice_commands, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -157,6 +162,7 @@ impl NativeApp {
                         "pages" => self.pages = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
                         "capture" => self.data["capture"] = value,
+                        "voice" => self.voice_state = value,
                         "page-context" => self.page_context=value,
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
@@ -270,7 +276,26 @@ impl NativeApp {
         }
         if !self.data["capture"].is_null() { ui.separator(); ui.heading("Captured result"); ui.label(self.data["capture"].to_string()); }
         for call in self.workspace["calls"].as_array().into_iter().flatten().filter(|call| call["threadId"].as_str()==Some(&self.selected_thread)) { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
-        ui.label("Voice calls are unavailable: this native client has no WebRTC/audio stack.");
+        ui.separator();
+        ui.heading("Voice call");
+        let voice_status = self.voice_state["status"].as_str().unwrap_or("idle");
+        if voice_status == "idle" {
+            if ui.add_enabled(!self.selected_thread.is_empty(),egui::Button::new("Start voice call")).clicked() {
+                let _ = self.voice_commands.send(voice::Command::Start { thread_id:self.selected_thread.clone(), anchor:None });
+            }
+        } else {
+            ui.label(format!("{} · {} · {:02}:{:02}",voice_status,self.voice_state["phase"].as_str().unwrap_or("listening"),self.voice_state["elapsed"].as_u64().unwrap_or(0)/60,self.voice_state["elapsed"].as_u64().unwrap_or(0)%60));
+            ui.horizontal(|ui| {
+                let muted=self.voice_state["muted"].as_bool().unwrap_or(false);
+                if ui.button(if muted{"Unmute microphone"}else{"Mute microphone"}).clicked(){let _=self.voice_commands.send(voice::Command::Mute(!muted));}
+                let speaker_muted=self.voice_state["speakerMuted"].as_bool().unwrap_or(false);
+                if ui.button(if speaker_muted{"Unmute speaker"}else{"Mute speaker"}).clicked(){let _=self.voice_commands.send(voice::Command::SpeakerMute(!speaker_muted));}
+                if ui.button("End call").clicked(){let _=self.voice_commands.send(voice::Command::End);}
+            });
+            if let Some(caption)=self.voice_state["userCaption"].as_str().filter(|value|!value.is_empty()){ui.label(format!("You: {caption}"));}
+            if let Some(caption)=self.voice_state["caption"].as_str().filter(|value|!value.is_empty()){ui.label(format!("Dot: {caption}"));}
+        }
+        if let Some(error)=self.voice_state["error"].as_str().filter(|value|!value.is_empty()){ui.colored_label(egui::Color32::from_rgb(180,65,58),error);}
         if !self.selected_thread.is_empty() {
             ui.separator();
             ui.heading("Chat");
