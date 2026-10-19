@@ -79,7 +79,9 @@ export class ComputerService {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-          ...(dotId ? { 'x-openbot-bot-id': dotId } : {}),
+          ...(dotId
+            ? { 'x-aether-bot-id': dotId, 'x-openbot-bot-id': dotId }
+            : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
         redirect: 'error',
