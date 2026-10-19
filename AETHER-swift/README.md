@@ -25,14 +25,16 @@ the process it started when the app exits. Choose the project folder and port
 in Settings. Set `OPENDOTS_ROOT` to select a project folder, or set
 `AETHER_URL`/`OPENDOTS_URL` to attach to an existing server.
 
-Requests and task controls use `/api/state`, `/api/tasks`, and task action
-routes. Enter the server's owner token in the client when prompted; AETHER
-sends it as `Authorization: Bearer …` and stores it in this Mac user's
-preferences. `OWNER_TOKEN` from the environment or the project `.env` is
-forwarded to the local server.
+The native client loads `/api/state` and `/api/workspace`, creates
+conversations through `/api/conversations`, and manages tasks through
+`/api/tasks` and task action routes. Enter the server's owner token in the
+client when prompted; AETHER sends it as `Authorization: Bearer …` and stores
+it in this Mac user's preferences. `OWNER_TOKEN` from the environment or the
+project `.env` is read for API access and passed to the local server.
 
 Server output is stored at `~/Library/Logs/dibi AETHER/server.log`.
 
-The native client currently covers task listing, creation, refresh, and
-run/pause actions. Other OpenDots web experiences, including conversations,
-Spaces, integrations, and voice, are not exposed in this desktop client.
+The native client currently supports conversation selection and creation,
+task listing and creation, refresh, and task run/pause actions. Other OpenDots
+experiences, including chat turns, Spaces, integrations, and voice, are not
+exposed in this desktop client.
