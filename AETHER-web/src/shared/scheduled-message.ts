@@ -17,7 +17,8 @@ export function isScheduledTaskMessage(
   return (
     !!metadata &&
     typeof metadata === 'object' &&
-    (('aetherSource' in metadata && metadata.aetherSource === 'scheduled_task') ||
+    (('aetherSource' in metadata &&
+      metadata.aetherSource === 'scheduled_task') ||
       ('opendotsSource' in metadata &&
         metadata.opendotsSource === 'scheduled_task'))
   );

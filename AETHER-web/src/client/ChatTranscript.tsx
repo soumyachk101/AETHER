@@ -18,7 +18,8 @@ export function isInternalVoiceReceipt(message: Message): boolean {
       message.id.startsWith(legacyVoiceReceiptMessagePrefix) ||
       (!!metadata &&
         typeof metadata === 'object' &&
-        (('aetherSource' in metadata && metadata.aetherSource === 'voice_receipt') ||
+        (('aetherSource' in metadata &&
+          metadata.aetherSource === 'voice_receipt') ||
           ('opendotsSource' in metadata &&
             metadata.opendotsSource === 'voice_receipt'))))
   );
