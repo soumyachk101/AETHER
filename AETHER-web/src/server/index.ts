@@ -83,6 +83,7 @@ const runner = new Runner(
       );
     progress('Running this task in its Intelligence conversation.');
     const text = await platform.turn(threadId, claim.prompt, signal, {
+      aetherSource: 'scheduled_task',
       opendotsSource: 'scheduled_task',
     });
     return { text, sources: [], sample: false };
