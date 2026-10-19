@@ -1,13 +1,11 @@
 # AETHER for macOS
 
-AETHER is a native SwiftUI desktop client for OpenDots. It talks to the
-OpenDots JSON API over HTTP and does not embed or render the web app.
+AETHER is a native macOS Swift desktop application for OpenDots. It supervises the local OpenDots Node server on `127.0.0.1:4310` and renders the full OpenDots web application (threads, canvas, TipTap editor, voice, and CopilotKit intelligence) inside a native WebKit container with AppKit integration.
 
 ## Requirements
 
 - macOS 13 or later, Xcode Command Line Tools, and Swift 5.9 or later.
-- Node.js 24 or later and the OpenDots app in `AETHER-web/` to start a local
-  server. Run `npm ci` in that directory before launching AETHER.
+- Node.js 24 or later and the OpenDots app in `AETHER-web/` to start the local server. Run `npm ci` and `npm run build` in `AETHER-web/`.
 
 ## Build
 
@@ -15,26 +13,30 @@ OpenDots JSON API over HTTP and does not embed or render the web app.
 AETHER-swift/scripts/build-macos.sh
 ```
 
-The app bundle is written to `AETHER-swift/dist/macos/AETHER.app`.
+The application bundle is written to `AETHER-swift/dist/macos/AETHER.app`.
 
-## Runtime
+To run directly from source with SwiftPM:
 
-AETHER discovers `AETHER-web/`, builds it with `npm run build` when the server
-entry point is missing, starts the server on `127.0.0.1:4310`, and stops only
-the process it started when the app exits. Choose the project folder and port
-in Settings. Set `OPENDOTS_ROOT` to select a project folder, or set
-`AETHER_URL`/`OPENDOTS_URL` to attach to an existing server.
+```sh
+cd AETHER-swift
+swift run
+```
 
-The native client loads `/api/state` and `/api/workspace`, creates
-conversations through `/api/conversations`, and manages tasks through
-`/api/tasks` and task action routes. Enter the server's owner token in the
-client when prompted; AETHER sends it as `Authorization: Bearer …` and stores
-it in this Mac user's preferences. `OWNER_TOKEN` from the environment or the
-project `.env` is read for API access and passed to the local server.
+## Features
 
-Server output is stored at `~/Library/Logs/dibi AETHER/server.log`.
+- **Embedded Web Experience**: Hosts the complete OpenDots web interface with hardware acceleration and WebKit integration.
+- **Server Lifecycle Supervision**: Auto-discovers `AETHER-web/`, compiles artifacts with `npm run build` if missing, starts the local server on `127.0.0.1:4310`, and cleanly shuts down the child process on application termination.
+- **Seamless Authentication**: Automatically reads `OWNER_TOKEN` from `.env` or the environment and injects session credentials directly into the webview.
+- **Native Desktop Menus & Shortcuts**:
+  - `Cmd+R`: Reload current view
+  - `Cmd+Shift+O`: Open in default system browser
+  - `Cmd+Opt+R`: Restart local server
+  - Open project folder in Finder
+  - Reveal server log in Finder
+- **Settings Scene**: Custom project root selection, port configuration, and live server logs.
+- **Diagnostics & Error Recovery**: In-app console showing real-time server output with instant retry controls if the server fails to bind or exits.
 
-The native client currently supports conversation selection and creation,
-task listing and creation, refresh, and task run/pause actions. Other OpenDots
-experiences, including chat turns, Spaces, integrations, and voice, are not
-exposed in this desktop client.
+## Server Output & Logs
+
+Server output is streamed to:
+`~/Library/Logs/dibi AETHER/server.log`

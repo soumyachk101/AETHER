@@ -37,6 +37,8 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AETHER uses your microphone for real-time voice interactions with OpenDots agents.</string>
     <key>NSHumanReadableCopyright</key>
     <string>AETHER · OpenDots desktop shell</string>
 </dict>
