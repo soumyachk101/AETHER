@@ -109,7 +109,7 @@ impl NativeApp {
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
                         "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.data["capture"] = Value::Null; self.refresh(); }
-                        "chat-delta" => { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } }
+                        "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
                         "mutation" => self.refresh(),
@@ -241,7 +241,7 @@ impl NativeApp {
                 let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
                 let mut request = client.post(url).header("Accept", "text/event-stream");
                 if let Some(token) = token { request = request.bearer_auth(token); }
-                let response = request.json(&json!({"threadId":thread_id,"runId":format!("aether-{now}"),"state":Value::Null,"messages":messages,"tools":[],"context":[],"forwardedProps":{}}))
+                let response = request.json(&json!({"threadId":thread_id.clone(),"runId":format!("aether-{now}"),"state":Value::Null,"messages":messages,"tools":[],"context":[],"forwardedProps":{}}))
                     .send().map_err(|e| format!("Chat request failed: {e}"))?;
                 let status = response.status();
                 if !status.is_success() {
@@ -256,9 +256,9 @@ impl NativeApp {
                 loop {
                     line.clear();
                     if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 { break; }
-                    let line = line.trim_end_matches(&['\\r', '\\n'][..]);
+                    let line = line.trim_end_matches(&['\r', '\n'][..]);
                     if let Some(value) = line.strip_prefix("event:") { event_type = value.trim().to_owned(); }
-                    else if let Some(value) = line.strip_prefix("data:") { if !payload.is_empty() { payload.push('\\n'); } payload.push_str(value.trim_start()); }
+                    else if let Some(value) = line.strip_prefix("data:") { if !payload.is_empty() { payload.push('\n'); } payload.push_str(value.trim_start()); }
                     else if line.is_empty() && !payload.is_empty() {
                         if let Ok(event) = serde_json::from_str::<Value>(&payload) {
                             let kind = event["type"].as_str().unwrap_or(&event_type);
@@ -268,7 +268,7 @@ impl NativeApp {
                             if kind.contains("TEXT_MESSAGE_CONTENT") || kind.contains("text_message_content") {
                                 if let Some(delta) = event["delta"].as_str().or_else(|| event["content"].as_str()) {
                                     got_text |= !delta.is_empty();
-                                    let _ = tx.send(("chat-delta".into(), Ok(json!({"delta":delta}))));
+                                    let _ = tx.send(("chat-delta".into(), Ok(json!({"threadId":thread_id.clone(),"delta":delta}))));
                                 }
                             }
                         }
