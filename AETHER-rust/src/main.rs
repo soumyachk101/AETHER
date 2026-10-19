@@ -125,8 +125,15 @@ impl NativeApp {
                             self.refresh_pages();
                             self.refresh_dot_tools();
                         }
-                        "connections" => self.connections = value,
+                        "connections" => {
+                            if let Some(items) = value.as_array() {
+                                self.connections = Value::Array(items.clone());
+                            } else if let (Some(id), Some(items)) = (value["id"].as_str(), self.connections.as_array_mut()) {
+                                if let Some(index) = items.iter().position(|item| item["id"].as_str() == Some(id)) { items[index] = value; }
+                            }
+                        }
                         "computer" => self.computer = value,
+                        "computer-action" => self.computer_text = value.to_string(),
                         "connection-added" => { self.connection_name.clear(); self.connection_url.clear(); self.connection_token.clear(); self.refresh_dot_tools(); }
                         "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
                         "task-detail" => self.selected_task = value,
@@ -211,7 +218,7 @@ impl NativeApp {
             cols[1].separator();
             cols[1].heading("Connected services");
             cols[1].label("Connect an MCP server. Tokens are stored by the server.");
-            cols[1].horizontal(|ui| { ui.text_edit_singleline(&mut self.connection_name).hint_text("Name"); ui.text_edit_singleline(&mut self.connection_url).hint_text("https://…"); });
+            cols[1].horizontal(|ui| { ui.add(egui::TextEdit::singleline(&mut self.connection_name).hint_text("Name")); ui.add(egui::TextEdit::singleline(&mut self.connection_url).hint_text("https://…")); });
             cols[1].horizontal(|ui| { ui.add(egui::TextEdit::singleline(&mut self.connection_token).password(true).hint_text("Optional token")); if ui.add_enabled(!self.selected_dot.is_empty() && !self.connection_name.trim().is_empty() && !self.connection_url.trim().is_empty(),egui::Button::new("Connect")).clicked() { self.request("connection-added","POST",&format!("/dots/{}/connections",self.selected_dot),Some(json!({"name":self.connection_name,"url":self.connection_url,"token":self.connection_token}))); } });
             for connection in self.connections.as_array().into_iter().flatten() {
                 cols[1].horizontal(|ui| { ui.strong(connection["name"].as_str().unwrap_or("Connection")); if ui.button("Refresh tools").clicked() { self.request("connections","POST",&format!("/connections/{}/refresh",connection["id"].as_str().unwrap_or("")),Some(json!({}))); } if ui.button("Remove").clicked() { self.mutate("DELETE",&format!("/connections/{}",connection["id"].as_str().unwrap_or("")),None); } });
@@ -369,7 +376,8 @@ impl NativeApp {
         ui.horizontal(|ui| { ui.label("Find task"); ui.text_edit_singleline(&mut self.task_search); });
         let tasks=self.data["tasks"].as_array().cloned().unwrap_or_default();
         if tasks.is_empty(){ui.label("No scheduled activity yet. Schedule a turn from a conversation.");}
-        for task in tasks.iter().filter(|task|task["prompt"].as_str().unwrap_or("").to_lowercase().contains(&self.task_search.to_lowercase())) { ui.separator(); ui.horizontal(|ui| { ui.vertical(|ui| { ui.label(task["prompt"].as_str().unwrap_or("")); ui.label(format!("{} · {}",task["status"],task["id"])); if let Some(error)=task["error"].as_str(){ui.colored_label(egui::Color32::DARK_RED,error);} }); for action in ["run","pause","cancel"] { if ui.button(action).clicked() { self.mutate("POST",&format!("/tasks/{}/actions",task["id"].as_str().unwrap_or("")),Some(json!({"action":action}))); } } if ui.button("Details").clicked(){self.request("task-detail","GET",&format!("/tasks/{}",task["id"].as_str().unwrap_or("")),None);} }); ui.horizontal(|ui| { ui.label("Repeat seconds (60–31536000; blank runs once)");ui.text_edit_singleline(&mut self.task_interval);if ui.button("Save schedule").clicked(){let interval=self.task_interval.trim().parse::<i64>().ok().filter(|n|*n>=60).map_or(Value::Null,|n|json!(n));self.mutate("PUT",&format!("/tasks/{}/schedule",task["id"].as_str().unwrap_or("")),Some(json!({"intervalSeconds":interval})));} }); }
+        let task_search = self.task_search.to_lowercase();
+        for task in tasks.iter().filter(|task|task["prompt"].as_str().unwrap_or("").to_lowercase().contains(&task_search)) { ui.separator(); ui.horizontal(|ui| { ui.vertical(|ui| { ui.label(task["prompt"].as_str().unwrap_or("")); ui.label(format!("{} · {}",task["status"],task["id"])); if let Some(error)=task["error"].as_str(){ui.colored_label(egui::Color32::DARK_RED,error);} }); for action in ["run","pause","cancel"] { if ui.button(action).clicked() { self.mutate("POST",&format!("/tasks/{}/actions",task["id"].as_str().unwrap_or("")),Some(json!({"action":action}))); } } if ui.button("Details").clicked(){self.request("task-detail","GET",&format!("/tasks/{}",task["id"].as_str().unwrap_or("")),None);} }); ui.horizontal(|ui| { ui.label("Repeat seconds (60–31536000; blank runs once)");ui.text_edit_singleline(&mut self.task_interval);if ui.button("Save schedule").clicked(){let interval=self.task_interval.trim().parse::<i64>().ok().filter(|n|*n>=60).map_or(Value::Null,|n|json!(n));self.mutate("PUT",&format!("/tasks/{}/schedule",task["id"].as_str().unwrap_or("")),Some(json!({"intervalSeconds":interval})));} }); }
         if !self.selected_task.is_null(){ui.separator();ui.heading("Task detail");ui.label(self.selected_task["task"]["prompt"].as_str().unwrap_or(""));for event in self.selected_task["events"].as_array().into_iter().flatten(){ui.label(event["text"].as_str().unwrap_or(""));}ui.label(format!("{} saved runs",self.selected_task["runs"].as_array().map_or(0,Vec::len)));}
         for call in self.workspace["calls"].as_array().into_iter().flatten() { ui.label(format!("{} · {}",call["status"],call["transcript"].as_str().unwrap_or(""))); }
     }
@@ -411,10 +419,11 @@ fn ui_computer_actions(app: &mut NativeApp, ui: &mut egui::Ui) {
     if !app.computer["error"].is_null(){ui.colored_label(egui::Color32::DARK_RED,app.computer["error"].as_str().unwrap_or("Computer error"));}
     if app.computer["state"].as_str()==Some("not_configured"){ui.label("No computer service is configured on the server.");}
     ui.separator();ui.heading("Browser");
-    ui.horizontal(|ui|{ui.text_edit_singleline(&mut app.computer_url).hint_text("https://example.com");if ui.button("Navigate").clicked(){app.request("computer","POST",&format!("{base}/actions"),Some(json!({"action":"navigate","input":{"url":app.computer_url}})));}if ui.button("Read page").clicked(){app.request("computer","POST",&format!("{base}/actions"),Some(json!({"action":"read","input":{}})));}});
+    ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_url).hint_text("https://example.com"));if ui.button("Navigate").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"navigate","input":{"url":app.computer_url}})));}if ui.button("Read page").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"read","input":{}})));}});
     ui.label("Screenshot preview is not rendered in this client. Browser screenshots and snapshots are still available through the server API.");
-    ui.separator();ui.heading("Files");ui.horizontal(|ui|{ui.text_edit_singleline(&mut app.computer_path).hint_text("Relative path");if ui.button("List directory").clicked(){app.request("computer","POST",&format!("{base}/actions"),Some(json!({"action":"files_list","input":{"path":app.computer_path}})));}if ui.button("Read file").clicked(){app.request("computer","POST",&format!("{base}/actions"),Some(json!({"action":"files_read","input":{"path":app.computer_path}})));}});
-    ui.separator();ui.heading("Terminal");ui.horizontal(|ui|{ui.text_edit_singleline(&mut app.computer_command);if ui.button("Run command").clicked(){app.request("computer","POST",&format!("{base}/actions"),Some(json!({"action":"exec","input":{"command":app.computer_command,"timeoutMs":30000}})));}});
+    ui.separator();ui.heading("Files");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_path).hint_text("Relative path"));if ui.button("List directory").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"files_list","input":{"path":app.computer_path}})));}if ui.button("Read file").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"files_read","input":{"path":app.computer_path}})));}});
+    ui.separator();ui.heading("Terminal");ui.horizontal(|ui|{ui.text_edit_singleline(&mut app.computer_command);if ui.button("Run command").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"exec","input":{"command":app.computer_command,"timeoutMs":30000}})));}});
+    if !app.computer_text.is_empty(){ui.separator();ui.heading("Action result");egui::ScrollArea::vertical().max_height(180.0).show(ui,|ui|{ui.label(&app.computer_text);});}
     if let Some(audit)=app.computer["audit"].as_array(){for entry in audit.iter().rev().take(6){ui.label(format!("{} · {} · {}",entry["action"],entry["actor"],entry["outcome"]));}}
 }
 
