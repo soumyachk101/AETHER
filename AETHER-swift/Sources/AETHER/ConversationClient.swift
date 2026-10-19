@@ -26,6 +26,7 @@ final class ConversationClient: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var sending = false
     @Published var error: String?
+    @Published private(set) var decidingToolID: String?
 
     func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async -> Bool {
         guard !sending else { return false }
@@ -138,10 +139,16 @@ final class ConversationClient: ObservableObject {
     }
 
     func decideTool(_ messageId: String, approve: Bool, dotId: String, threadId: String, baseURL: URL, token: String?) async {
-        guard let index = messages.firstIndex(where: { $0.id == messageId }), let tool = messages[index].tool, let callId = messages[index].toolCallId else { return }
+        guard decidingToolID == nil,
+              let message = messages.first(where: { $0.id == messageId }),
+              let tool = message.tool,
+              let callId = message.toolCallId,
+              message.result == nil else { return }
+        decidingToolID = messageId
+        defer { decidingToolID = nil }
         do {
             var result: [String: Any]
-            let args = messages[index].arguments?.mapValues { $0.value } ?? [:]
+            let args = message.arguments?.mapValues { $0.value } ?? [:]
             if !approve {
                 result = ["approved": false, "message": tool == "review_space_page" ? "The owner declined this draft. Do not save it." : "The owner declined this action. Do not perform it or try another way."]
             } else if tool == "review_space_page" {
@@ -153,13 +160,19 @@ final class ConversationClient: ObservableObject {
                 result = try await api("/api/conversations/\(threadId)/connection-actions", method: "POST", body: ["toolCallId": callId, "approvalId": approvalId], baseURL: baseURL, token: token)
                 result["approved"] = true
             }
+            guard let index = messages.firstIndex(where: { $0.id == messageId }) else { return }
             messages[index].decision = approve
             messages[index].result = String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)
             let toolResult = ChatMessage(role: "tool", text: "", result: messages[index].result, toolCallId: callId)
             messages.append(toolResult)
             messages.append(ChatMessage(role: "assistant", text: ""))
+            decidingToolID = nil
             _ = await send("", dotId: dotId, threadId: threadId, baseURL: baseURL, token: token)
-        } catch { messages[index].actionError = error.localizedDescription }
+        } catch {
+            if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                messages[index].actionError = error.localizedDescription
+            }
+        }
     }
 
     private func consume(eventType: String, dataLines: [String], assistantId: String) {
@@ -200,13 +213,27 @@ final class ConversationClient: ObservableObject {
                   let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             messages[i].arguments = args.mapValues(AnyCodable.init)
         case "TOOL_CALL_RESULT":
-            guard let i = toolIndex(string("toolCallId")) else { return }
-            if let content = event["content"] { messages[i].result = String(describing: content) }
-            else if let result = event["result"] { messages[i].result = String(describing: result) }
+            guard let id = string("toolCallId"), let i = toolIndex(id) else { return }
+            guard let value = event["content"] ?? event["result"] else { return }
+            let content = Self.toolResultContent(value)
+            messages[i].result = content
+            if let resultIndex = messages.firstIndex(where: { $0.role == "tool" && $0.tool == nil && $0.toolCallId == id }) {
+                messages[resultIndex].result = content
+            } else {
+                messages.append(ChatMessage(role: "tool", text: "", result: content, toolCallId: id))
+            }
         case "RUN_ERROR", "RUN_FAILED":
             error = string("message") ?? "The assistant run failed."
         default: break
         }
+    }
+
+    private static func toolResultContent(_ value: Any) -> String {
+        if let string = value as? String { return string }
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else { return String(describing: value) }
+        return string
     }
 
     func api(_ path: String, method: String = "GET", body: [String: Any]? = nil, baseURL: URL, token: String?) async throws -> [String: Any] {

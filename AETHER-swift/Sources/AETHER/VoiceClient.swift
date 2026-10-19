@@ -104,7 +104,7 @@ final class VoiceClient: NSObject, ObservableObject {
             do { try await finishCall(id: id) }
             catch { self.error = "Call ended, but its receipt could not be saved: \(error.localizedDescription)" }
         }
-        cleanup(); status = "idle"; ending = false; starting = false
+        cleanup(); status = "idle"; ending = false
     }
 
     private func finishCall(id: String) async throws {
