@@ -31,13 +31,18 @@ const workspace = new WorkspaceStore(
   database,
   process.env.OWNER_ID ?? 'aether-owner',
 );
+const savedSettings = store.settings();
 const config: PlatformConfig = {
-  intelligenceKey: intelligenceApiKeyFromEnv(process.env),
+  intelligenceKey:
+    savedSettings.intelligenceApiKey || intelligenceApiKeyFromEnv(process.env),
   intelligenceApiUrl: process.env.INTELLIGENCE_API_URL || undefined,
   intelligenceWsUrl: intelligenceWsUrlFromEnv(process.env),
-  apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.OPENAI_MODEL,
-  baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+  apiKey: savedSettings.openaiApiKey || process.env.OPENAI_API_KEY,
+  model: savedSettings.openaiModel || process.env.OPENAI_MODEL,
+  baseUrl:
+    savedSettings.openaiBaseUrl ||
+    process.env.OPENAI_BASE_URL ||
+    'https://api.openai.com/v1',
   agentRunTimeoutMs: agentRunTimeoutMsFromEnv(process.env),
   webSearchProvider: webSearchProvider(process.env.WEB_SEARCH_PROVIDER),
   parallelApiKey: process.env.PARALLEL_API_KEY,
