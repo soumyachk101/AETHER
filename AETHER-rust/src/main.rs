@@ -216,7 +216,7 @@ impl eframe::App for Client {
                 self.error = Some(message);
             }
         }
-        if !self.refresh_pending && (self.state.is_none() || Instant::now() >= self.refresh_at) {
+        if !self.refresh_pending && Instant::now() >= self.refresh_at {
             self.refresh();
         }
 
