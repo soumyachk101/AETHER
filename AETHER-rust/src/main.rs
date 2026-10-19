@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::{io::{BufRead, BufReader}, sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone, Copy, PartialEq)]
-enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings }
+enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings, Computer }
 
 struct NativeApp {
     base: String,
@@ -46,6 +46,19 @@ struct NativeApp {
     dot_research: bool,
     dot_memory: bool,
     dot_apps: bool,
+    connections: Value,
+    computer: Value,
+    connection_name: String,
+    connection_url: String,
+    connection_token: String,
+    computer_url: String,
+    computer_text: String,
+    computer_path: String,
+    computer_command: String,
+    selected_memory: String,
+    task_search: String,
+    selected_task: Value,
+    page_dot: String,
     server: Arc<Mutex<Option<server::OwnedServer>>>,
 }
 
@@ -67,7 +80,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -83,6 +96,13 @@ impl NativeApp {
 
     fn refresh_pages(&self) {
         if !self.selected_space.is_empty() { self.request("pages", "GET", &format!("/spaces/{}/pages", self.selected_space), None); }
+    }
+
+    fn refresh_dot_tools(&self) {
+        if !self.selected_dot.is_empty() {
+            self.request("connections", "GET", &format!("/dots/{}/connections", self.selected_dot), None);
+            self.request("computer", "GET", &format!("/dots/{}/computer", self.selected_dot), None);
+        }
     }
 
     fn poll(&mut self) {
@@ -102,7 +122,13 @@ impl NativeApp {
                                 self.selected_thread = self.workspace["conversations"][0]["id"].as_str().unwrap_or("").to_owned();
                             }
                             self.refresh_pages();
+                            self.refresh_dot_tools();
                         }
+                        "connections" => self.connections = value,
+                        "computer" => self.computer = value,
+                        "connection-added" => { self.connection_name.clear(); self.connection_url.clear(); self.connection_token.clear(); self.refresh_dot_tools(); }
+                        "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
+                        "task-detail" => self.selected_task = value,
                         "pages" => self.pages = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
                         "capture" => self.data["capture"] = value,
@@ -112,7 +138,7 @@ impl NativeApp {
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
-                        "mutation" => self.refresh(),
+                        "mutation" => { self.refresh(); if !self.selected_dot.is_empty() { self.refresh_dot_tools(); } },
                         _ => {}
                     }
                 }
@@ -159,6 +185,7 @@ impl NativeApp {
                         self.dot_research = dot["researchAllowed"].as_bool().unwrap_or(true);
                         self.dot_memory = dot["memoryAllowed"].as_bool().unwrap_or(true);
                         self.dot_apps = dot["appsAllowed"].as_bool().unwrap_or(false);
+                        self.refresh_dot_tools();
                     }
                 }
             });
@@ -177,6 +204,22 @@ impl NativeApp {
                 if self.selected_dot.is_empty() { self.request("dot-saved","POST","/dots",Some(body)); }
                 else { self.request("dot-saved","PUT",&format!("/dots/{}",self.selected_dot),Some(body)); }
             }
+            cols[1].separator();
+            cols[1].heading("Connected services");
+            cols[1].label("Connect an MCP server. Tokens are stored by the server.");
+            cols[1].horizontal(|ui| { ui.text_edit_singleline(&mut self.connection_name).hint_text("Name"); ui.text_edit_singleline(&mut self.connection_url).hint_text("https://…"); });
+            cols[1].horizontal(|ui| { ui.add(egui::TextEdit::singleline(&mut self.connection_token).password(true).hint_text("Optional token")); if ui.add_enabled(!self.selected_dot.is_empty() && !self.connection_name.trim().is_empty() && !self.connection_url.trim().is_empty(),egui::Button::new("Connect")).clicked() { self.request("connection-added","POST",&format!("/dots/{}/connections",self.selected_dot),Some(json!({"name":self.connection_name,"url":self.connection_url,"token":self.connection_token}))); } });
+            for connection in self.connections.as_array().into_iter().flatten() {
+                cols[1].horizontal(|ui| { ui.strong(connection["name"].as_str().unwrap_or("Connection")); if ui.button("Refresh tools").clicked() { self.request("connections","POST",&format!("/connections/{}/refresh",connection["id"].as_str().unwrap_or("")),Some(json!({}))); } if ui.button("Remove").clicked() { self.mutate("DELETE",&format!("/connections/{}",connection["id"].as_str().unwrap_or("")),None); } });
+                if let Some(message)=connection["error"].as_str() { cols[1].colored_label(egui::Color32::DARK_RED,message); }
+                for tool in connection["tools"].as_array().into_iter().flatten() {
+                    cols[1].horizontal(|ui| { ui.label(format!("{}{}",tool["title"].as_str().unwrap_or("Tool"),if tool["readOnly"].as_bool().unwrap_or(false){" · read-only"}else{""})); let mut enabled=tool["enabled"].as_bool().unwrap_or(false); if ui.checkbox(&mut enabled,"Enabled").changed() { self.request("connections","PATCH",&format!("/connections/{}/tools/{}",connection["id"].as_str().unwrap_or(""),tool["name"].as_str().unwrap_or("")),Some(json!({"enabled":enabled}))); } let mut approval=tool["requiresApproval"].as_bool().unwrap_or(false); if ui.add_enabled(enabled,egui::Checkbox::new(&mut approval,"Ask first")).changed() { self.request("connections","PATCH",&format!("/connections/{}/tools/{}",connection["id"].as_str().unwrap_or(""),tool["name"].as_str().unwrap_or("")),Some(json!({"requiresApproval":approval}))); } });
+                }
+            }
+            cols[1].separator(); cols[1].heading("Computer");
+            cols[1].label(format!("{} · {}",self.computer["state"].as_str().unwrap_or("Loading status"),if self.computer["configured"].as_bool().unwrap_or(false){"configured"}else{"not configured"}));
+            cols[1].horizontal(|ui| { if ui.button("Refresh status").clicked(){self.refresh_dot_tools();} if ui.add_enabled(self.computer["configured"].as_bool().unwrap_or(false),egui::Button::new("Start")).clicked(){self.mutate("POST",&format!("/dots/{}/computer/start",self.selected_dot),Some(json!({})));} if ui.button("Stop").clicked(){self.mutate("POST",&format!("/dots/{}/computer/stop",self.selected_dot),Some(json!({})));} if ui.button("Take control").clicked(){self.mutate("POST",&format!("/dots/{}/computer/take",self.selected_dot),Some(json!({})));} if ui.button("Release control").clicked(){self.mutate("POST",&format!("/dots/{}/computer/release",self.selected_dot),Some(json!({})));} });
+            ui_computer_actions(self, &mut cols[1]);
         });
     }
 
