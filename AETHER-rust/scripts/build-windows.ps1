@@ -52,8 +52,8 @@ The app starts the OpenDots Node server on 127.0.0.1:4310 and stops it on exit.
 The web app must already be built (npm ci && npm run build in the OpenDots app
 directory). If it lives elsewhere, set OPENDOTS_ROOT to its absolute path.
 
-Requirements: Microsoft Edge WebView2 Runtime, Node.js 24+ in PATH, and the
-OpenDots dist/ output.
+Requirements: Node.js 24+ in PATH and the built OpenDots dist/ output. The
+native egui application does not require the WebView2 Runtime.
 
 Environment overrides:
   OPENDOTS_ROOT   OpenDots project root (contains package.json and src\server\index.ts)
