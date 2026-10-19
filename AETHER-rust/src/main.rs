@@ -4,7 +4,7 @@ mod server;
 
 use eframe::egui;
 use serde_json::{json, Value};
-use std::{io::{BufRead, BufReader}, sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, io::{BufRead, BufReader}, sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings, Computer }
@@ -137,6 +137,11 @@ impl NativeApp {
                         "computer" => self.computer = value,
                         "computer-action" => { self.computer_text = value.to_string(); if value["base64"].is_string() { self.computer_screen = value; } },
                         "chat-tool" => { self.chat_tools.push(value); }
+                        "chat-tool-result-event" | "chat-tool-action-result" => {
+                            if let Some(call) = self.chat_tools.as_array_mut().and_then(|tools| tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == value["toolCallId"].as_str())) {
+                                call["result"] = value["content"].clone().as_str().map(|s| json!(s)).unwrap_or_else(|| value["result"].clone());
+                            }
+                        }
                         "connection-added" => { self.connection_name.clear(); self.connection_url.clear(); self.connection_token.clear(); self.refresh_dot_tools(); }
                         "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
                         "task-detail" => self.selected_task = value,
@@ -151,7 +156,10 @@ impl NativeApp {
                         "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.chat_tools.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
-                        "chat-tool-result" => { self.chat_messages.push(("assistant".into(),format!("Page review result: {}",value))); self.refresh(); }
+                        "chat-tool-result" => {
+                            if let Some(call) = self.chat_tools.as_array_mut().and_then(|tools| tools.iter_mut().find(|tool| tool["toolCallId"].as_str() == value["toolCallId"].as_str())) { call["result"] = json!(format!("Page saved: {}", value["title"].as_str().unwrap_or("page"))); }
+                            self.refresh();
+                        }
                         "connection-approval" => self.chat_messages.push(("assistant".into(),format!("Approval details: {}",value))),
                         "connection-run" => self.chat_messages.push(("assistant".into(),format!("Connected service result: {}",value))),
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
@@ -252,7 +260,7 @@ impl NativeApp {
         ui.add_space(12.0);
         for thread in self.workspace["conversations"].as_array().into_iter().flatten() {
             let id = thread["id"].as_str().unwrap_or("");
-            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.selected_dot = thread["dotId"].as_str().unwrap_or("").into(); self.chat_thread = id.to_owned(); self.chat_messages.clear(); self.data["capture"] = Value::Null; self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); self.refresh_dot_tools(); }
+            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.selected_dot = thread["dotId"].as_str().unwrap_or("").into(); self.chat_thread = id.to_owned(); self.chat_messages.clear(); self.chat_tools.clear(); self.data["capture"] = Value::Null; self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); self.refresh_dot_tools(); }
         }
         if !self.data["capture"].is_null() { ui.separator(); ui.heading("Captured result"); ui.label(self.data["capture"].to_string()); }
         for call in self.workspace["calls"].as_array().into_iter().flatten().filter(|call| call["threadId"].as_str()==Some(&self.selected_thread)) { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
@@ -262,9 +270,9 @@ impl NativeApp {
             ui.heading("Chat");
             if !self.page_context.is_null(){ui.label(format!("Working on page: {}",self.page_context["title"].as_str().unwrap_or("Page")));}
             ui.horizontal(|ui|{ui.text_edit_singleline(&mut self.conversation_title);if ui.add_enabled(!self.chat_busy,egui::Button::new("Save conversation as page")).clicked(){self.request("conversation-page","POST",&format!("/conversations/{}/page",self.selected_thread),Some(json!({"title":self.conversation_title,"parentId":Value::Null})));}});
-            for tool in self.chat_tools.clone() { ui.group(|ui| { let name=tool["name"].as_str().unwrap_or("Tool"); let call_id=tool["toolCallId"].as_str().unwrap_or(""); let args=&tool["args"]; ui.strong(name); ui.label(args.to_string());
-                if name=="review_space_page" { ui.label("Page draft review"); if ui.button("Approve and save page").clicked(){ self.request("chat-tool-result","POST",&format!("/conversations/{}/reviewed-page",self.selected_thread),Some(json!({"toolCallId":call_id,"title":args["title"],"content":args["content"],"spaceId":args["spaceId"]}))); } if ui.button("Decline draft").clicked(){ self.chat_messages.push(("assistant".into(),"Page draft declined.".into())); } }
-                if name=="request_connection_action" { let approval=args["approvalId"].as_str().unwrap_or(""); if ui.button("Review connected action").clicked(){self.request("connection-approval","GET",&format!("/conversations/{}/connection-approvals/{}",self.selected_thread,approval),None);} if ui.button("Approve and run").clicked(){self.request("connection-run","POST",&format!("/conversations/{}/connection-actions",self.selected_thread),Some(json!({"toolCallId":call_id,"approvalId":approval})));} }
+            for tool in self.chat_tools.clone() { ui.group(|ui| { let name=tool["name"].as_str().unwrap_or("Tool"); let call_id=tool["toolCallId"].as_str().unwrap_or(""); let args=&tool["args"]; ui.strong(name); ui.label(args.to_string()); if let Some(result)=tool["result"].as_str(){ui.label(result);}
+                if name=="review_space_page" { ui.label("Page draft review"); if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and save page")).clicked(){ self.request("chat-tool-result","POST",&format!("/conversations/{}/reviewed-page",self.selected_thread),Some(json!({"toolCallId":call_id,"title":args["title"],"content":args["content"],"spaceId":args["spaceId"]}))); } if tool["result"].is_null() && ui.button("Decline draft").clicked(){ if let Some(call)=self.chat_tools.as_array_mut().and_then(|tools|tools.iter_mut().find(|item|item["toolCallId"].as_str()==Some(call_id))){call["result"]=json!("Declined by owner");} } }
+                if name=="request_connection_action" { let approval=args["approvalId"].as_str().unwrap_or(""); if ui.button("Review connected action").clicked(){self.request("connection-approval","GET",&format!("/conversations/{}/connection-approvals/{}",self.selected_thread,approval),None);} if ui.add_enabled(tool["result"].is_null(),egui::Button::new("Approve and run")).clicked(){self.request("connection-run","POST",&format!("/conversations/{}/connection-actions",self.selected_thread),Some(json!({"toolCallId":call_id,"approvalId":approval})));} }
             }); }
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 for (role, text) in &self.chat_messages {
@@ -320,6 +328,8 @@ impl NativeApp {
                 let mut event_type = String::new();
                 let mut payload = String::new();
                 let mut got_text = false;
+                let mut tool_names = HashMap::<String, String>::new();
+                let mut tool_arguments = HashMap::<String, String>::new();
                 loop {
                     line.clear();
                     if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 { break; }
@@ -332,9 +342,24 @@ impl NativeApp {
                             if kind.contains("RUN_ERROR") || kind.contains("RUN_FAILED") || kind.contains("run_error") {
                                 return Err(event["message"].as_str().unwrap_or("The assistant run failed.").to_owned());
                             }
-                            if kind.to_lowercase().contains("tool_call") || kind.to_lowercase().contains("toolcall") {
-                                let name=event["name"].as_str().or_else(||event["toolCall"]["function"]["name"].as_str()).or_else(||event["tool_call"]["name"].as_str());
-                                if let Some(name)=name { let args=event["arguments"].clone().as_str().and_then(|x|serde_json::from_str::<Value>(x).ok()).unwrap_or_else(||event["arguments"].clone()); let id=event["toolCallId"].as_str().or_else(||event["id"].as_str()).unwrap_or(""); let _=tx.send(("chat-tool".into(),Ok(json!({"name":name,"args":args,"toolCallId":id,"event":event})))); }
+                            let id=event["toolCallId"].as_str().or_else(||event["toolCallID"].as_str()).unwrap_or("").to_owned();
+                            match kind {
+                                "TOOL_CALL_START" | "tool_call_start" => {
+                                    if !id.is_empty() { if let Some(name)=event["toolCallName"].as_str().or_else(||event["toolName"].as_str()).or_else(||event["name"].as_str()) { tool_names.insert(id.clone(),name.to_owned()); } tool_arguments.insert(id, String::new()); }
+                                }
+                                "TOOL_CALL_ARGS" | "tool_call_args" => {
+                                    if !id.is_empty() { tool_arguments.entry(id).or_default().push_str(event["delta"].as_str().unwrap_or("")); }
+                                }
+                                "TOOL_CALL_END" | "tool_call_end" => {
+                                    if let Some(name)=tool_names.remove(&id) {
+                                        let args=tool_arguments.remove(&id).and_then(|raw|serde_json::from_str::<Value>(&raw).ok()).unwrap_or_else(||json!({}));
+                                        let _=tx.send(("chat-tool".into(),Ok(json!({"name":name,"args":args,"toolCallId":id,"event":event}))));
+                                    }
+                                }
+                                "TOOL_CALL_RESULT" | "tool_call_result" => {
+                                    let _=tx.send(("chat-tool-result-event".into(),Ok(json!({"toolCallId":id,"content":event["content"]}))));
+                                }
+                                _ => {}
                             }
                             if kind.contains("TEXT_MESSAGE_CONTENT") || kind.contains("text_message_content") {
                                 if let Some(delta) = event["delta"].as_str().or_else(|| event["content"].as_str()) {
