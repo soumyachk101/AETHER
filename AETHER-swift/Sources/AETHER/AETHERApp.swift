@@ -44,7 +44,7 @@ struct AETHERCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
 
-        CommandMenu("OpenDots") {
+        CommandMenu("AETHER") {
             Button("Reload") {
                 web.reload()
             }
