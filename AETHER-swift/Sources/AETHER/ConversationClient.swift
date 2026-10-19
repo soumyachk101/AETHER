@@ -78,7 +78,7 @@ final class ConversationClient: ObservableObject {
             }
             if !dataLines.isEmpty || !eventType.isEmpty {
                 self.error = "The runtime stream ended before the final event was complete."
-            } else if messages.first(where: { $0.id == assistant.id })?.text.isEmpty == true && error == nil {
+            } else if messages.last(where: { $0.role == "assistant" })?.text.isEmpty == true && error == nil {
                 self.error = "The current turn returned no response. Check the runtime connection and retry."
             }
         } catch {
@@ -101,7 +101,11 @@ final class ConversationClient: ObservableObject {
         switch type {
         case "TEXT_MESSAGE_START":
             guard string("role") == "assistant", let id = string("messageId") else { return }
-            if !messages.contains(where: { $0.id == id }) { messages.append(ChatMessage(id: id, role: "assistant", text: "")) }
+            if let i = messages.firstIndex(where: { $0.id == assistantId }) {
+                messages[i].id = id
+            } else if !messages.contains(where: { $0.id == id }) {
+                messages.append(ChatMessage(id: id, role: "assistant", text: ""))
+            }
         case "TEXT_MESSAGE_CONTENT":
             guard let id = string("messageId"), let delta = string("delta"),
                   let i = messages.firstIndex(where: { $0.id == id && $0.role == "assistant" }) else { return }
@@ -126,7 +130,6 @@ final class ConversationClient: ObservableObject {
             error = string("message") ?? "The assistant run failed."
         default: break
         }
-        _ = assistantId
     }
 
     func api(_ path: String, method: String = "GET", body: [String: Any]? = nil, baseURL: URL, token: String?) async throws -> [String: Any] {

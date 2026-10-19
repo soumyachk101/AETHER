@@ -177,7 +177,7 @@ extension VoiceClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         Task { @MainActor in
             guard status != "ending", status != "idle" else { return }
-            if newState == .connected { disconnectTask?.cancel(); disconnectTask = nil; status = "active"; if durationTask == nil { durationTask = Task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(1)); elapsed += 1 } } }; if let callId { _ = try? await api("/api/voice/calls/\(callId)/active", method: "POST", body: [:]) } }
+            if newState == .connected { disconnectTask?.cancel(); disconnectTask = nil }
             if newState == .disconnected {
                 disconnectTask?.cancel(); disconnectTask = Task { try? await Task.sleep(for: .seconds(5)); if !Task.isCancelled { error = "The voice connection dropped."; await end() } }
             }
@@ -191,7 +191,14 @@ extension VoiceClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange state: RTCPeerConnectionState) {
         Task { @MainActor in
             guard status != "ending", status != "idle" else { return }
-            if state == .connected { status = "active"; if let callId { _ = try? await api("/api/voice/calls/\(callId)/active", method: "POST", body: [:]) } }
+            if state == .connected {
+                status = "active"
+                if durationTask == nil { durationTask = Task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(1)); if !Task.isCancelled { elapsed += 1 } } } }
+                if let callId {
+                    do { _ = try await api("/api/voice/calls/\(callId)/active", method: "POST", body: [:]) }
+                    catch { if status != "ending" { self.error = error.localizedDescription } }
+                }
+            }
             if state == .failed { error = "The voice connection dropped."; await end() }
         }
     }
