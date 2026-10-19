@@ -14,6 +14,7 @@ let swiftDir = scriptDir.deletingLastPathComponent()
 let repoDir = swiftDir.deletingLastPathComponent()
 
 let sourceCandidates = [
+    swiftDir.appendingPathComponent("Sources/AETHER/Resources/dock_icon.png"),
     repoDir.appendingPathComponent("image.png"),
     swiftDir.appendingPathComponent("Sources/AETHER/Resources/logo.png"),
     repoDir.appendingPathComponent("AETHER-web/public/logo.png")

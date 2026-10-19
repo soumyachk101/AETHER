@@ -34,8 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        if let logo = loadAetherLogo() {
-            NSApp.applicationIconImage = logo
+        if let dockIcon = loadAetherDockIcon() ?? loadAetherLogo() {
+            NSApp.applicationIconImage = dockIcon
         }
     }
 }
