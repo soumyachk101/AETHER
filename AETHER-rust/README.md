@@ -1,6 +1,6 @@
 # dibi AETHER (Rust)
 
-A small native desktop shell for OpenDots on Windows and Linux. It opens a `tao` window, embeds the OpenDots web app in the OS webview (`wry`), starts the local Node server on `127.0.0.1:4310`, and stops that server when the window closes.
+A native eframe/egui desktop client for OpenDots on Windows and Linux. It starts or attaches to the local Node server on `127.0.0.1:4310` and calls its JSON API directly. The interface does not use WebView, HTML, or browser fetch.
 
 The crate is named `dibi-aether`; the binary is `aether`. Platform packaging renames the executable to `AETHER` (`AETHER.exe` on Windows).
 
@@ -8,7 +8,7 @@ The crate is named `dibi-aether`; the binary is `aether`. Platform packaging ren
 
 ### Windows
 
-- Windows 10/11 with the Microsoft Edge WebView2 Evergreen Runtime installed on the target machine (usually preinstalled; otherwise install the Evergreen Runtime from Microsoft).
+- Windows 10/11 with the Rust MSVC toolchain and Visual Studio Build Tools with the C++ workload.
 - Node.js 24 or newer.
 - Rust 1.85+ with the MSVC toolchain (`rustup default stable-msvc`) and Visual Studio Build Tools with the C++ workload.
 - The web app must be installed and built (run in the OpenDots app directory, i.e. `AETHER-web/`):
@@ -20,16 +20,15 @@ The crate is named `dibi-aether`; the binary is `aether`. Platform packaging ren
 
 ### Linux
 
-Install the WebKitGTK 4.1 development stack (Debian/Ubuntu):
+Install Rust 1.85+ and the X11 or Wayland desktop development dependencies required by eframe/winit. A desktop session with an OpenGL-capable graphics driver is required to run the app.
 
 ```bash
 sudo apt update
-sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-  libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-  build-essential pkg-config
+sudo apt install -y build-essential pkg-config libx11-dev libxkbcommon-dev \
+  libwayland-dev libegl1-mesa-dev
 ```
 
-Then install Node.js 24+, Rust 1.85+, and build the web app as above (`npm ci && npm run build`). On Fedora the equivalents are `webkit2gtk4.1-devel`, `gtk3-devel`, `libsoup3-devel`, and `javascriptcoregtk4.1-devel`.
+Then install Node.js 24+ and build the OpenDots app (`npm ci && npm run build` in AETHER-web/).
 
 ## Build and run
 
@@ -80,11 +79,10 @@ Build the web app first (`npm ci && npm run build` in `AETHER-web/`), then run t
 
 Each script compiles a release binary and places a portable bundle under `dist/<platform>/`. Launch `dist/linux/AETHER` on Linux or `dist/windows/AETHER.exe` on Windows. Each bundle includes a README with launch and environment-variable instructions. The app still needs access to the built OpenDots app root and its `node_modules`; set `OPENDOTS_ROOT` if the root is not auto-detected.
 
-Linux targets need the WebKitGTK 4.1, GTK 3, libsoup 3, and JavaScriptCoreGTK 4.1 runtime libraries; the build machine also needs their development packages listed above.
-Windows targets need the Microsoft Edge WebView2 Evergreen Runtime and Node.js 24+ available on `PATH`. Both platforms need the built OpenDots app and Node.js 24+ to start the bundled local server. Windows signing remains opt-in with `-Sign`; it is skipped with a warning if the certificate or `signtool.exe` is unavailable.
+Linux targets need an X11 or Wayland session, XKB and OpenGL runtime libraries, and Node.js 24+ available on `PATH`. Windows targets need Node.js 24+ available on `PATH`; no WebView2 runtime is required. Both platforms need the built OpenDots app to start the local server. Windows signing remains opt-in with `-Sign`; it is skipped with a warning if the certificate or `signtool.exe` is unavailable.
 
 The Linux bundle includes `AETHER.desktop`; after copying it into `~/.local/share/applications/`, set its `Exec` value to the absolute path of the `AETHER` executable.
 
 ## Architecture
 
-`main.rs` creates the `tao` event loop and window, then a `wry` WebView pointed at the local URL. A server supervisor owns the Node child process and health poll and is shut down on exit. `dirs` supplies the per-platform data directory for logs; `webbrowser` opens external links. There is no separate Rust UI layer: all UI is the OpenDots web app itself.
+`main.rs` creates a native eframe/egui window. API requests run on background threads so the UI remains responsive. A server supervisor owns any Node child process and stops it on exit. `dirs` supplies the per-platform data directory for logs.

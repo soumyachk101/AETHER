@@ -1,6 +1,6 @@
 # AETHER for macOS
 
-AETHER is a native macOS Swift desktop application for OpenDots. It supervises the local OpenDots Node server on `127.0.0.1:4310` and renders the full OpenDots web application (threads, canvas, TipTap editor, voice, and CopilotKit intelligence) inside a native WebKit container with AppKit integration.
+AETHER is a native macOS SwiftUI desktop client for OpenDots. It supervises the local Node server on `127.0.0.1:4310` and uses the server's JSON API and CopilotKit stream directly. It does not embed a browser or web UI.
 
 ## Requirements
 
@@ -24,17 +24,19 @@ swift run
 
 ## Features
 
-- **Embedded Web Experience**: Hosts the complete OpenDots web interface with hardware acceleration and WebKit integration.
+- **Native workspace**: Home, Dots, conversations, Spaces and pages, scheduled activity, memories, and settings are rendered with SwiftUI.
+- **Workspace actions**: Create and edit Dots, create Spaces, search and manage pages, schedule and manage tasks, and add, edit, or remove memories.
+- **Native chat**: Sends turns through the CopilotKit event stream and displays messages for the current app session.
 - **Server Lifecycle Supervision**: Auto-discovers `AETHER-web/`, compiles artifacts with `npm run build` if missing, starts the local server on `127.0.0.1:4310`, and cleanly shuts down the child process on application termination.
-- **Seamless Authentication**: Automatically reads `OWNER_TOKEN` from `.env` or the environment and injects session credentials directly into the webview.
+- **Authentication**: Reads `OWNER_TOKEN` from `.env` or the environment and sends it as bearer authorization to the local API.
 - **Native Desktop Menus & Shortcuts**:
-  - `Cmd+R`: Reload current view
-  - `Cmd+Shift+O`: Open in default system browser
   - `Cmd+Opt+R`: Restart local server
   - Open project folder in Finder
   - Reveal server log in Finder
 - **Settings Scene**: Custom project root selection, port configuration, and live server logs.
 - **Diagnostics & Error Recovery**: In-app console showing real-time server output with instant retry controls if the server fails to bind or exits.
+
+Conversation history is not exposed by the server API, so chat messages are held in memory for the current app session. Voice, computer control, connected-service approvals, and the web page editor's advanced tools are not yet available in this native client.
 
 ## Server Output & Logs
 
