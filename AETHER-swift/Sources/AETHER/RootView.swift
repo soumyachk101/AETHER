@@ -203,11 +203,6 @@ struct AetherMark: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.24), lineWidth: 1)
-                    )
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
