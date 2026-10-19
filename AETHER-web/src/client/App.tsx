@@ -48,6 +48,7 @@ import { TaskRow } from './TaskPresentation';
 import { TaskActions } from './TaskActions';
 import { WorkspaceDialog, type Dialog } from './WorkspaceDialog';
 import { submitComposerOnEnter } from './chat-composer';
+import { SettingsView } from './SettingsView';
 
 function describeFailure(error: unknown, fallback: string) {
   return {
@@ -62,9 +63,9 @@ export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceState>();
   const [selectedDot, setSelectedDot] = useState('');
   const [selectedThread, setSelectedThread] = useState<string>();
-  const [view, rawSetView] = useState<'chat' | 'tasks' | 'memories' | 'space'>(
-    'chat',
-  );
+  const [view, rawSetView] = useState<
+    'chat' | 'tasks' | 'memories' | 'space' | 'settings'
+  >('chat');
   const dirtyPage = useRef(false);
   const [spaceId, setSpaceId] = useState('');
   const [pageId, setPageId] = useState<string>();
@@ -341,9 +342,9 @@ export function App() {
           <Clock3 size={18} />
         </button>
         <button
-          className="rail-settings"
+          className={`rail-settings ${view === 'settings' ? 'active' : ''}`}
           aria-label="Open settings"
-          onClick={() => setDialog({ type: 'settings' })}
+          onClick={() => setView('settings')}
         >
           <Settings2 size={18} />
         </button>
@@ -497,8 +498,11 @@ export function App() {
             )}
           </button>
           <button
-            className="nav-item"
-            onClick={() => setDialog({ type: 'settings' })}
+            className={`nav-item ${view === 'settings' ? 'active' : ''}`}
+            onClick={() => {
+              setView('settings');
+              setMobile(false);
+            }}
           >
             <Settings2 size={17} />
             <span>Settings & setup</span>
@@ -541,7 +545,9 @@ export function App() {
                   ? 'Activity'
                   : view === 'space'
                     ? 'Pages'
-                    : 'Memories'}
+                    : view === 'settings'
+                      ? 'Settings'
+                      : 'Memories'}
             </strong>
           </div>
           <div className="top-actions">
@@ -589,7 +595,14 @@ export function App() {
             All Dots are paused. Active compute stops and scheduled tasks wait.
           </div>
         )}
-        {view === 'space' ? (
+        {view === 'settings' ? (
+          <SettingsView
+            state={state}
+            workspace={workspace}
+            onRefresh={refresh}
+            onNavigate={(v) => setView(v)}
+          />
+        ) : view === 'space' ? (
           <SpaceWorkspace
             key={spaceId}
             space={
@@ -676,13 +689,23 @@ export function App() {
                             Tracking and opt-out details
                           </a>
                         </p>
-                        <a
-                          href="https://github.com/soumyachk101/AETHER/blob/main/docs/SETUP.md"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open the setup guide <ArrowUpRight size={12} />
-                        </a>
+                        <div className="setup-actions">
+                          <button
+                            type="button"
+                            className="primary setup-configure-btn"
+                            onClick={() => setView('settings')}
+                          >
+                            <Settings2 size={15} />
+                            <span>Configure OpenAI API</span>
+                          </button>
+                          <a
+                            href="https://github.com/soumyachk101/AETHER/blob/main/docs/SETUP.md"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open the setup guide <ArrowUpRight size={12} />
+                          </a>
+                        </div>
                       </div>
                     </div>
                   )}
