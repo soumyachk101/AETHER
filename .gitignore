@@ -1,0 +1,12 @@
+# Ignore everything at root
+/*
+
+# Whitelist allowed directories & config
+!/.gitignore
+!/AETHER-rust/
+!/AETHER-swift/
+
+# Standard build ignores
+AETHER-rust/target/
+AETHER-swift/.build/
+.DS_Store

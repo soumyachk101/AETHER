@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AETHER
+GenericName=OpenDots Desktop
+Comment=Native desktop shell for the self-hosted OpenDots app
+Exec=AETHER
+Terminal=false
+Categories=Office;Utility;
+StartupNotify=true
+StartupWMClass=AETHER

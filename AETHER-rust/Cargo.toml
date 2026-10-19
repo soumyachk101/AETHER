@@ -1,0 +1,17 @@
+[package]
+name = "dibi-aether"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "Cross-platform native desktop shell for OpenDots"
+
+[[bin]]
+name = "aether"
+path = "src/main.rs"
+
+[dependencies]
+wry = "0.57"
+tao = "0.37"
+webbrowser = "1"
+dirs = "6"
