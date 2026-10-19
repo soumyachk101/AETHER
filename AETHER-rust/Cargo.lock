@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "aether"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
+ "tao",
+ "webbrowser",
+ "wry",
+]
+
+[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -304,16 +314,6 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "dibi-aether"
-version = "0.1.0"
-dependencies = [
- "dirs 6.0.0",
- "tao",
- "webbrowser",
- "wry",
 ]
 
 [[package]]
