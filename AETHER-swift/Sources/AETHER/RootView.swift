@@ -1,221 +1,157 @@
 #if os(macOS)
 import SwiftUI
+import Combine
+
+private enum Section: String, CaseIterable, Identifiable {
+    case home = "Home", dots = "Dots", conversations = "Conversations", pages = "Spaces & Pages", tasks = "Scheduled & Activity", memories = "Memories", settings = "Settings"
+    var id: String { rawValue }
+    var icon: String { ["Home":"house", "Dots":"sparkles", "Conversations":"bubble.left.and.bubble.right", "Spaces & Pages":"doc.text", "Scheduled & Activity":"clock", "Memories":"brain.head.profile", "Settings":"gearshape"][rawValue] ?? "circle" }
+}
+
+@MainActor private final class Workspace: ObservableObject {
+    @Published var state: [String: Any] = [:]
+    @Published var workspace: [String: Any] = [:]
+    @Published var alert: String?
+    var base: URL?; var token: String?
+    func load(_ server: ServerController) async {
+        guard let base = server.serverURL else { return }; self.base = base; token = server.ownerToken
+        do { state = try await get("/api/state"); workspace = try await get("/api/workspace"); await loadPages() } catch { alert = error.localizedDescription }
+    }
+    func get(_ path: String) async throws -> [String: Any] { try await request(path, method: "GET") }
+    func send(_ path: String, method: String = "POST", body: [String: Any] = [:]) async throws -> [String: Any] { try await request(path, method: method, body: body) }
+    private func request(_ path: String, method: String, body: [String: Any]? = nil) async throws -> [String: Any] {
+        guard let base else { throw URLError(.notConnectedToInternet) }
+        var req = URLRequest(url: base.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
+        req.httpMethod = method; req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token, !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let object = try? JSONSerialization.jsonObject(with: data)
+        let result = object as? [String: Any] ?? ["items": object as? [[String: Any]] ?? []]
+        guard (response as? HTTPURLResponse)?.statusCode ?? 500 < 300 else { throw NSError(domain: "AETHER", code: 1, userInfo: [NSLocalizedDescriptionKey: result["error"] as? String ?? "Request failed."]) }
+        return result
+    }
+    func refresh() async { if base != nil { do { state = try await get("/api/state"); workspace = try await get("/api/workspace"); await loadPages() } catch { alert = error.localizedDescription } } }
+    private func loadPages() async { for index in rows("spaces", from: workspace).indices { let space = rows("spaces", from: workspace)[index]; if let id = space["id"] as? String, let result = try? await get("/api/spaces/\(id)/pages") { var updated = space; updated["pages"] = result["items"] ?? []; var all = rows("spaces", from: workspace); all[index] = updated; workspace["spaces"] = all } } }
+    func rows(_ key: String, from source: [String: Any]) -> [[String: Any]] { source[key] as? [[String: Any]] ?? [] }
+    func str(_ row: [String: Any], _ key: String) -> String { row[key] as? String ?? "" }
+}
 
 struct RootView: View {
     @EnvironmentObject private var server: ServerController
-    @EnvironmentObject private var web: WebViewStore
+    @StateObject private var data = Workspace()
+    @StateObject private var chat = ConversationClient()
+    @State private var section: Section = .home
+    @State private var selectedThread = ""
+    @State private var selectedDot = ""
+    @State private var search = ""
+    @State private var draft = ""
+    @State private var pageTitle = ""
+    @State private var pageContent = ""
+    @State private var pageId = ""
+    @State private var pageSpace = ""
+    @State private var pageRevision = 0
+    @State private var composer = ""
+    @State private var taskPrompt = ""
+    @State private var memoryText = ""
 
     var body: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
-                .ignoresSafeArea()
-
-            if server.phase.isReady, let url = server.serverURL {
-                AetherWebView(url: url, token: server.ownerToken, store: web)
-                    .id(server.generation)
-                    .ignoresSafeArea()
-            } else {
-                LaunchView()
-            }
-
-            if server.phase.isReady, let error = web.lastError {
-                VStack {
-                    HStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(error)
-                            .font(.callout)
-                            .lineLimit(2)
-                        Spacer(minLength: 12)
-                        Button("Reload") { web.reload() }
-                        Button("Dismiss") { web.lastError = nil }
-                    }
-                    .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(.white.opacity(0.12))
-                    )
-                    .padding(16)
-                    Spacer()
-                }
-            }
-        }
-        .frame(minWidth: 940, minHeight: 620)
-        .task {
-            await server.start()
-        }
-    }
-}
-
-struct LaunchView: View {
-    @EnvironmentObject private var server: ServerController
-
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.055, green: 0.062, blue: 0.105),
-                    Color(red: 0.105, green: 0.062, blue: 0.165),
-                    Color(red: 0.028, green: 0.125, blue: 0.155)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color(red: 0.43, green: 0.35, blue: 1).opacity(0.22),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 10,
-                        endRadius: 320
-                    )
-                )
-                .frame(width: 640, height: 640)
-                .offset(x: -220, y: -240)
-                .blur(radius: 20)
-
-            VStack(spacing: 22) {
-                AetherMark(size: 82)
-
-                VStack(spacing: 5) {
-                    Text("AETHER")
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("Your OpenDots desktop")
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-
-                HStack(spacing: 9) {
-                    if server.phase.isBusy {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    } else if let message = server.phase.failedMessage {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(.orange)
-                    } else {
-                        Image(systemName: "bolt.horizontal.circle")
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-                    Text(server.phase.failedMessage ?? server.statusText)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background(.white.opacity(0.07), in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
-                .frame(maxWidth: 720)
-
-                if server.phase.failedMessage != nil {
-                    HStack(spacing: 10) {
-                        Button {
-                            Task { await server.start() }
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
+        Group {
+            if !server.phase.isReady { LaunchView() }
+            else {
+                NavigationSplitView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(spacing: 10) { AetherMark(size: 36); VStack(alignment: .leading) { Text("AETHER").font(.headline); Text("OpenDots workspace").font(.caption).foregroundStyle(.secondary) } }
+                            .padding(.horizontal, 15).padding(.top, 18)
+                        ForEach(Section.allCases) { item in
+                            Button { section = item } label: { Label(item.rawValue, systemImage: item.icon).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6) }
+                                .buttonStyle(.plain).padding(.horizontal, 12)
+                                .background(section == item ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 9))
                         }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            server.revealLog()
-                        } label: {
-                            Label("Reveal Log", systemImage: "doc.text.magnifyingglass")
-                        }
-                        .buttonStyle(.bordered)
-
-                        if let root = server.rootURL {
-                            Button {
-                                NSWorkspace.shared.open(root)
-                            } label: {
-                                Label("Open Project", systemImage: "folder")
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                        Spacer()
+                        Label("Local server connected", systemImage: "circle.fill").font(.caption).foregroundStyle(.secondary).padding(16)
                     }
-                    .tint(.white)
-
-                    LogConsole(text: server.logs)
-                } else {
-                    Text("The local server is started automatically. The first launch may build the app.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.38))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 460)
+                    .padding(10).frame(minWidth: 220).background(Color(nsColor: .controlBackgroundColor))
+                } detail: {
+                    VStack(spacing: 0) {
+                        HStack { Text(section.rawValue).font(.system(size: 24, weight: .semibold, design: .rounded)); Spacer(); Button { Task { await data.refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
+                            .padding(.horizontal, 28).padding(.vertical, 18)
+                        Divider()
+                        screen.padding(26)
+                    }.background(Color(nsColor: .windowBackgroundColor))
                 }
             }
-            .padding(48)
+        }
+        .frame(minWidth: 980, minHeight: 650)
+        .task { await server.start(); await data.load(server) }
+        .alert("AETHER", isPresented: Binding(get: { data.alert != nil }, set: { if !$0 { data.alert = nil } })) { Button("OK") {} } message: { Text(data.alert ?? "") }
+    }
+
+    @ViewBuilder private var screen: some View {
+        switch section {
+        case .home: home
+        case .dots: listScreen("Your specialist Dots", rows: data.rows("dots", from: data.workspace), name: "name", detail: "instructions")
+        case .conversations: conversations
+        case .pages: pages
+        case .tasks: tasks
+        case .memories: memories
+        case .settings: settings
         }
     }
-}
-
-struct AetherMark: View {
-    var size: CGFloat = 64
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.45, green: 0.36, blue: 1.0),
-                            Color(red: 0.24, green: 0.78, blue: 0.94)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                        .strokeBorder(.white.opacity(0.22))
-                )
-
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.white)
+    private var home: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("A calm place to think with your Dots.").font(.title2).foregroundStyle(.secondary)
+            HStack(spacing: 14) { metric("Dots", data.rows("dots", from: data.workspace).count); metric("Conversations", data.rows("conversations", from: data.workspace).count); metric("Pages", data.rows("spaces", from: data.workspace).count); metric("Scheduled", data.rows("tasks", from: data.state).count) }
+            Text("Recent conversations").font(.headline)
+            ForEach(Array(data.rows("conversations", from: data.workspace).prefix(6).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId"); section = .conversations } label: { Label(data.str(row,"title"), systemImage: "bubble.left").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain) }
+            Spacer()
         }
-        .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.38), radius: size * 0.18, y: size * 0.09)
     }
-}
-
-struct LogConsole: View {
-    let text: String
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                Text(text.isEmpty ? "No output yet." : text)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-
-                Color.clear
-                    .frame(height: 1)
-                    .id("log-bottom")
-            }
-            .frame(maxWidth: 720, maxHeight: 220)
-            .background(.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(.white.opacity(0.08))
-            )
-            .onChange(of: text) { _ in
-                withAnimation(.easeOut(duration: 0.15)) {
-                    proxy.scrollTo("log-bottom", anchor: .bottom)
+    private func metric(_ label: String, _ count: Int) -> some View { VStack(alignment: .leading, spacing: 6) { Text("\(count)").font(.title.bold()); Text(label).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(18).background(.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 14)) }
+    private func emptyState(_ title: String, icon: String, detail: String) -> some View { VStack(spacing: 10) { Image(systemName: icon).font(.system(size: 32)).foregroundStyle(.blue.opacity(0.7)); Text(title).font(.headline); Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 360) }.frame(maxWidth: .infinity, maxHeight: .infinity) }
+    private func listScreen(_ title: String, rows: [[String: Any]], name: String, detail: String) -> some View { VStack(alignment: .leading, spacing: 16) { Text(title).font(.title3); ForEach(Array(rows.enumerated()), id: \.offset) { _, row in VStack(alignment: .leading, spacing: 6) { Text(data.str(row,name)).font(.headline); Text(data.str(row,detail)).foregroundStyle(.secondary).lineLimit(4) }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.blue.opacity(0.055), in: RoundedRectangle(cornerRadius: 12)) }; Spacer() } }
+    private var conversations: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading) {
+                HStack { Text("Threads").font(.headline); Spacer(); Button { Task { await createConversation() } } label: { Image(systemName: "plus") }.help("New conversation") }
+                ForEach(Array(data.rows("conversations", from: data.workspace).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId"); chat.messages = [] } label: { VStack(alignment: .leading) { Text(data.str(row,"title")).font(.callout); Text(data.str(row,"dotId")).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(9).background(selectedThread == data.str(row,"id") ? .blue.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain) }
+                Spacer()
+            }.frame(width: 210)
+            Divider()
+            VStack(spacing: 12) {
+                if selectedThread.isEmpty { emptyState("Choose a conversation", icon: "bubble.left.and.bubble.right", detail: "Start a conversation with one of your Dots.") }
+                else {
+                    if chat.messages.isEmpty { emptyState("No messages in this session", icon: "text.bubble", detail: "This native client keeps the current session in memory. The server does not expose conversation transcript history.") }
+                    ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } } } }
+                    if let error = chat.error { Text(error).foregroundStyle(.red).font(.caption) }
+                    HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }; Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || composer.isEmpty) }
                 }
             }
         }
     }
+    private func send() { let text = composer; composer = ""; Task { if let base = data.base { await chat.send(text, dotId: selectedDot, threadId: selectedThread, baseURL: base, token: data.token) } } }
+    private func createConversation() async { let dots = data.rows("dots", from: data.workspace); guard let dot = dots.first else { data.alert = "Create a Dot before starting a conversation."; return }; do { let result = try await data.send("/api/conversations", body: ["dotId": data.str(dot,"id"), "title":"A new thought"]); selectedThread = data.str(result,"id"); selectedDot = data.str(result,"dotId"); await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private var pages: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { TextField("Search pages", text: $search).textFieldStyle(.roundedBorder); Picker("Space", selection: $pageSpace) { ForEach(Array(data.rows("spaces", from:data.workspace).enumerated()), id:\.offset) { _, space in Text(data.str(space,"name")).tag(data.str(space,"id")) } }.frame(width:220); Button("New Page") { pageId = ""; pageTitle = "Untitled"; pageContent = "" } }
+            HStack(alignment: .top, spacing: 14) {
+                List { ForEach(Array(data.rows("spaces", from: data.workspace).enumerated()), id: \.offset) { _, space in Section(data.str(space,"name")) { ForEach(Array(filteredPages(space).enumerated()), id: \.offset) { _, p in Button(data.str(p,"title")) { selectPage(p, space: space) }.buttonStyle(.plain) } } } }.frame(width: 260)
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Page title", text: $pageTitle).font(.title3)
+                    TextField("Markdown content", text: $pageContent, axis: .vertical).textFieldStyle(.roundedBorder).frame(maxHeight: .infinity, alignment: .top)
+                    HStack { if !pageId.isEmpty { Button("Delete", role: .destructive) { Task { await deletePage() } } }; Spacer(); Button("Save") { Task { await savePage() } }.buttonStyle(.borderedProminent) }
+                }
+            }
+        }
+    }
+    private func filteredPages(_ space: [String: Any]) -> [[String: Any]] { let rows = data.rows("pages", from: space); return rows.filter { search.isEmpty || data.str($0,"title").localizedCaseInsensitiveContains(search) } }
+    private func selectPage(_ page: [String: Any], space: [String: Any]) { pageId = data.str(page,"id"); pageSpace = data.str(space,"id"); pageTitle = data.str(page,"title"); pageContent = data.str(page,"content"); pageRevision = page["revision"] as? Int ?? 0 }
+    private func savePage() async { do { if pageId.isEmpty { let result = try await data.send("/api/spaces/\(pageSpace)/pages", body: ["title":pageTitle,"content":pageContent]); pageId = data.str(result,"id") } else { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method: "PATCH", body: ["title":pageTitle,"content":pageContent,"expectedRevision":pageRevision]) }; await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private func deletePage() async { do { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method:"DELETE"); pageId = ""; pageTitle = ""; pageContent = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private var tasks: some View { VStack(alignment: .leading, spacing: 12) { HStack { Picker("Conversation", selection: $selectedThread) { Text("Choose a conversation").tag(""); ForEach(Array(data.rows("conversations", from:data.workspace).enumerated()), id:\.offset) { _, thread in Text(data.str(thread,"title")).tag(data.str(thread,"id")) } }.frame(width:250); TextField("Task request", text: $taskPrompt); Button("Schedule") { Task { await createTask() } }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty) }; ForEach(Array(data.rows("tasks", from: data.state).enumerated()), id: \.offset) { _, task in HStack { VStack(alignment:.leading) { Text(data.str(task,"prompt")); Text(data.str(task,"status")).font(.caption).foregroundStyle(.secondary) }; Spacer(); ForEach(["run","pause","cancel"], id:\.self) { action in Button(action.capitalized) { Task { await taskAction(task, action) } }.controlSize(.small) } }.padding(12).background(.blue.opacity(0.05), in: RoundedRectangle(cornerRadius:10)) }; Spacer() } }
+    private func createTask() async { guard !selectedThread.isEmpty else { data.alert = "Select a conversation for this scheduled task."; return }; do { _ = try await data.send("/api/tasks", body:["prompt":taskPrompt,"threadId":selectedThread]); taskPrompt = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private func taskAction(_ task:[String:Any], _ action:String) async { do { _ = try await data.send("/api/tasks/\(data.str(task,"id"))/actions", body:["action":action]); await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private var memories: some View { VStack(alignment:.leading, spacing:12) { HStack { TextField("Add a memory", text:$memoryText); Button("Save") { Task { do { _ = try await data.send("/api/memories", body:["text":memoryText]); memoryText = ""; await data.refresh() } catch { data.alert = error.localizedDescription } } }.buttonStyle(.borderedProminent) }; ForEach(Array(data.rows("memories", from:data.state).enumerated()), id:\.offset) { _, m in Text(data.str(m,"text")).frame(maxWidth:.infinity, alignment:.leading).padding(14).background(.blue.opacity(0.06), in:RoundedRectangle(cornerRadius:10)) }; Spacer() } }
+    private var settings: some View { VStack(alignment:.leading, spacing:14) { TextField("Workspace name", text: Binding(get:{ (data.state["settings"] as? [String:Any])?["name"] as? String ?? "OpenDots" }, set:{ draft = $0 })).textFieldStyle(.roundedBorder); ForEach([("paused","Pause activity"),("researchAllowed","Allow research"),("memoryAllowed","Allow memory"),("appsAllowed","Allow connected apps")], id:\.0) { key,label in Toggle(label, isOn: Binding(get:{ ((data.state["settings"] as? [String:Any])?[key] as? Bool) ?? false }, set:{ value in Task { do { let updated = try await data.send("/api/settings", method:"PATCH", body:[key:value]); data.state["settings"] = updated } catch { data.alert = error.localizedDescription } } })) }; Button("Save name") { Task { do { data.state["settings"] = try await data.send("/api/settings", method:"PATCH", body:["name":draft]) } catch { data.alert = error.localizedDescription } } }; Text("Configuration: \((data.state["configured"] as? Bool == true) ? "Ready" : "Setup needed") · Mode: \(data.state["mode"] as? String ?? "—")").font(.caption).foregroundStyle(.secondary); Spacer() }.frame(maxWidth:500, alignment:.leading) }
 }
 #endif

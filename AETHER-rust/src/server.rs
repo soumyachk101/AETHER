@@ -162,7 +162,3 @@ pub fn check_exit(server: &mut Option<OwnedServer>) -> Option<String> {
     }
 }
 
-pub fn error_page(message: &str) -> String {
-    let escaped = message.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-    format!("<!doctype html><meta charset=utf-8><title>AETHER startup error</title><style>body{{font:16px system-ui;max-width:760px;margin:12vh auto;padding:24px;color:#222}}h1{{font-size:28px}}pre{{white-space:pre-wrap;background:#f3f3f3;padding:16px;border-radius:8px}}</style><h1>AETHER could not start</h1><pre>{escaped}</pre>")
-}
