@@ -64,19 +64,31 @@ final class ConversationClient: ObservableObject {
                         let value = (event["delta"] as? String) ?? (event["content"] as? String) ?? ""
                         if type.contains("TEXT_MESSAGE_CONTENT") || type.contains("text_message_content") {
                             if let i = messages.lastIndex(where: { $0.id == assistant.id }) { messages[i].text += value }
-                        } else if type.contains("TOOL_CALL_ARGS") || type.contains("tool_call_args") {
+                        } else if type == "TOOL_CALL_START" || type == "tool_call_start" {
+                            let id = event["toolCallId"] as? String ?? ""
+                            let name = event["toolCallName"] as? String ?? event["toolName"] as? String ?? event["name"] as? String ?? ""
+                            if !id.isEmpty {
+                                if let i = messages.firstIndex(where: { $0.id == id }) {
+                                    if !name.isEmpty { messages[i].tool = name }
+                                } else {
+                                    messages.append(ChatMessage(id: id, role: "tool", text: "", tool: name.isEmpty ? nil : name))
+                                }
+                            }
+                        } else if type == "TOOL_CALL_ARGS" || type == "tool_call_args" {
                             let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? ""
                             let delta = event["delta"] as? String ?? ""
                             if let i = messages.firstIndex(where: { $0.id == id }) {
                                 messages[i].rawToolArguments += delta
                                 if let data = messages[i].rawToolArguments.data(using: .utf8), let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { messages[i].arguments = args.mapValues(AnyCodable.init) }
+                            } else if !id.isEmpty {
+                                messages.append(ChatMessage(id: id, role: "tool", text: "", rawToolArguments: delta))
                             }
-                        } else if type.contains("TOOL_CALL") || type.contains("tool_call") {
-                            let name = event["toolName"] as? String ?? event["name"] as? String ?? ""
-                            let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? UUID().uuidString
-                            let args = (event["args"] as? [String: Any]) ?? (event["arguments"] as? [String: Any]) ?? [:]
-                            if !name.isEmpty, !messages.contains(where: { $0.id == id }) { messages.append(ChatMessage(id: id, role: "tool", text: "", tool: name, arguments: args.mapValues(AnyCodable.init))) }
-                        } else if type.contains("TOOL_RESULT") || type.contains("tool_result") {
+                        } else if type == "TOOL_CALL_END" || type == "tool_call_end" {
+                            let id = event["toolCallId"] as? String ?? ""
+                            if let i = messages.firstIndex(where: { $0.id == id }), let data = messages[i].rawToolArguments.data(using: .utf8), let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                messages[i].arguments = args.mapValues(AnyCodable.init)
+                            }
+                        } else if type == "TOOL_CALL_RESULT" || type == "tool_call_result" {
                             let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? ""
                             if let i = messages.firstIndex(where: { $0.id == id }) { messages[i].result = String(describing: event["content"] ?? event["result"] ?? "") }
                         } else if type.contains("RUN_ERROR") || type.contains("RUN_FAILED") { error = event["message"] as? String ?? "The assistant run failed." }
