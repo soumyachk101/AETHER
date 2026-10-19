@@ -82,7 +82,7 @@ it('executes server turns without browser-only Core discovery and tears down the
   );
   expect(sdk.message).toHaveBeenCalledWith(
     expect.objectContaining({
-      id: expect.stringMatching(/^opendots:voice_receipt:/),
+      id: expect.stringMatching(/^(aether|opendots):voice_receipt:/),
       role: 'user',
       content: 'Record my call',
       metadata: { opendotsSource: 'voice_receipt' },
@@ -121,7 +121,7 @@ it('marks scheduled user prompts while preserving their text and user role', asy
 
   expect(sdk.message).toHaveBeenCalledWith(
     expect.objectContaining({
-      id: expect.stringMatching(/^opendots:scheduled_task:/),
+      id: expect.stringMatching(/^(aether|opendots):scheduled_task:/),
       role: 'user',
       content: 'Check the nightly report',
       metadata: { opendotsSource: 'scheduled_task' },
