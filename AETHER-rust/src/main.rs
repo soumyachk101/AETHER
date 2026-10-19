@@ -54,7 +54,7 @@ fn api_call(base: String, token: Option<String>, method: &str, path: &str, body:
 impl NativeApp {
     fn new(url: String, server: Option<server::OwnedServer>) -> Self {
         let (tx, rx) = mpsc::channel();
-        let mut app = Self {
+        let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
             space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), memory_text: String::new(), settings_name: String::new(), settings: json!({}), server: Arc::new(Mutex::new(server)),
@@ -82,10 +82,23 @@ impl NativeApp {
                     self.error = None;
                     match tag.as_str() {
                         "refresh" => { self.settings = value["settings"].clone(); self.settings_name = self.settings["name"].as_str().unwrap_or("").to_owned(); self.data = value; }
-                        "workspace" => { self.workspace = value; if self.selected_space.is_empty() { self.selected_space = self.workspace["spaces"][0]["id"].as_str().unwrap_or("").to_owned(); self.refresh_pages(); } if self.selected_thread.is_empty() { self.selected_thread = self.workspace["conversations"][0]["id"].as_str().unwrap_or("").to_owned(); } }
+                        "workspace" => {
+                            self.workspace = value;
+                            if self.workspace["spaces"].as_array().into_iter().flatten().all(|space| space["id"].as_str() != Some(&self.selected_space)) {
+                                self.selected_space = self.workspace["spaces"][0]["id"].as_str().unwrap_or("").to_owned();
+                                self.selected_page.clear();
+                            }
+                            if self.workspace["conversations"].as_array().into_iter().flatten().all(|thread| thread["id"].as_str() != Some(&self.selected_thread)) {
+                                self.selected_thread = self.workspace["conversations"][0]["id"].as_str().unwrap_or("").to_owned();
+                            }
+                            self.refresh_pages();
+                        }
                         "pages" => self.pages = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
                         "capture" => self.data["capture"] = value,
+                        "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
+                        "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
+                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.data["capture"] = Value::Null; self.refresh(); }
                         "mutation" => self.refresh(),
                         _ => {}
                     }
@@ -117,14 +130,14 @@ impl NativeApp {
         ui.horizontal(|ui| {
             egui::ComboBox::from_label("Specialist").selected_text(self.workspace["dots"].as_array().into_iter().flatten().find(|d|d["id"].as_str()==Some(&self.selected_dot)).and_then(|d|d["name"].as_str()).unwrap_or("Choose a Dot")).show_ui(ui, |ui| { for dot in self.workspace["dots"].as_array().into_iter().flatten() { ui.selectable_value(&mut self.selected_dot,dot["id"].as_str().unwrap_or("").into(),dot["name"].as_str().unwrap_or("Specialist")); } });
             ui.text_edit_singleline(&mut self.conversation_title);
-            if Self::button(ui, "Create conversation").clicked() {
-                if !self.selected_dot.is_empty() { self.mutate("POST", "/conversations", Some(json!({"dotId":self.selected_dot,"title":self.conversation_title}))); }
+            if ui.add_enabled(!self.selected_dot.is_empty(), egui::Button::new("Create conversation")).clicked() {
+                self.request("conversation-created", "POST", "/conversations", Some(json!({"dotId":self.selected_dot,"title":self.conversation_title})));
             }
         });
         ui.add_space(12.0);
         for thread in self.workspace["conversations"].as_array().into_iter().flatten() {
             let id = thread["id"].as_str().unwrap_or("");
-            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); }
+            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.data["capture"] = Value::Null; self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); }
         }
         if !self.data["capture"].is_null() { ui.separator(); ui.heading("Captured result"); ui.label(self.data["capture"].to_string()); }
         for call in self.workspace["calls"].as_array().into_iter().flatten() { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
@@ -143,8 +156,8 @@ impl NativeApp {
             egui::ScrollArea::vertical().show(&mut cols[0], |ui| { for page in self.pages.as_array().into_iter().flatten() { let id=page["id"].as_str().unwrap_or(""); if ui.selectable_label(self.selected_page==id,page["title"].as_str().unwrap_or("Untitled")).clicked() { self.request("page-read","GET",&format!("/spaces/{}/pages/{id}",self.selected_space),None); } } });
             cols[1].label("Title"); cols[1].text_edit_singleline(&mut self.page_title); cols[1].label("Markdown"); cols[1].add(egui::TextEdit::multiline(&mut self.page_content).desired_rows(18).desired_width(f32::INFINITY));
             cols[1].horizontal(|ui| {
-                if Self::button(ui,"Save page").clicked() { let (method,path,body)=if self.selected_page.is_empty() { ("POST",format!("/spaces/{}/pages",self.selected_space),json!({"title":self.page_title,"content":self.page_content})) } else { ("PATCH",format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),json!({"title":self.page_title,"content":self.page_content,"expectedRevision":self.page_revision})) }; self.mutate(method,&path,Some(body)); }
-                if !self.selected_page.is_empty() && Self::button(ui,"Delete page").clicked() { self.mutate("DELETE",&format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),None); self.selected_page.clear(); }
+                if ui.add_enabled(!self.selected_space.is_empty() && !self.page_title.trim().is_empty(), egui::Button::new("Save page")).clicked() { let (method,path,body)=if self.selected_page.is_empty() { ("POST",format!("/spaces/{}/pages",self.selected_space),json!({"title":self.page_title,"content":self.page_content})) } else { ("PATCH",format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),json!({"title":self.page_title,"content":self.page_content,"expectedRevision":self.page_revision})) }; self.request("page-saved",method,&path,Some(body)); }
+                if !self.selected_page.is_empty() && ui.button("Delete page").clicked() { self.request("page-deleted","DELETE",&format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),None); }
             });
         });
     }
@@ -155,7 +168,8 @@ impl NativeApp {
         ui.horizontal(|ui| {
             egui::ComboBox::from_label("Conversation").selected_text(self.workspace["conversations"].as_array().into_iter().flatten().find(|c|c["id"].as_str()==Some(&self.selected_thread)).and_then(|c|c["title"].as_str()).unwrap_or("Select conversation")).show_ui(ui,|ui| { for c in self.workspace["conversations"].as_array().into_iter().flatten() { if ui.selectable_value(&mut self.selected_thread,c["id"].as_str().unwrap_or("").into(),c["title"].as_str().unwrap_or("Conversation")).clicked() {} } });
             ui.label("Repeat seconds (blank for once)"); ui.text_edit_singleline(&mut self.task_interval);
-            if Self::button(ui,"Create task").clicked() { let interval=self.task_interval.trim().parse::<i64>().ok(); self.mutate("POST","/tasks",Some(json!({"prompt":self.task_prompt,"intervalSeconds":interval,"threadId":self.selected_thread}))); }
+            let can_create = !self.selected_thread.is_empty() && self.task_prompt.trim().len() >= 3;
+            if ui.add_enabled(can_create, egui::Button::new("Create task")).clicked() { let interval=self.task_interval.trim().parse::<i64>().ok(); self.mutate("POST","/tasks",Some(json!({"prompt":self.task_prompt,"intervalSeconds":interval,"threadId":self.selected_thread}))); }
         });
         for task in self.data["tasks"].as_array().into_iter().flatten() { ui.separator(); ui.horizontal(|ui| { ui.vertical(|ui| { ui.label(task["prompt"].as_str().unwrap_or("")); ui.label(format!("{} · {}",task["status"],task["id"])); }); for action in ["run","pause","cancel"] { if ui.button(action).clicked() { self.mutate("POST",&format!("/tasks/{}/actions",task["id"].as_str().unwrap_or("")),Some(json!({"action":action}))); } } }); }
         for call in self.workspace["calls"].as_array().into_iter().flatten() { ui.label(format!("{} · {}",call["status"],call["transcript"].as_str().unwrap_or(""))); }
