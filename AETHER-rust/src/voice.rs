@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use opus::{Application, Channels, Decoder, Encoder};
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread, time::{Duration, Instant}};
@@ -108,10 +108,10 @@ async fn connect(base: &str, token: Option<&str>, thread_id: &str) -> Result<Voi
 async fn run_call(base: &str, token: Option<&str>, ui: &std::sync::mpsc::Sender<(String, Result<Value, String>)>, commands: &mut mpsc::UnboundedReceiver<Command>, mut call: VoiceCall, anchor: Option<String>) {
     call.anchor = anchor;
     let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<i16>>(8);
-    let mut input = call.input;
+    let AudioInput { _stream: _input_stream, receiver: mut input_receiver } = call.input;
     let forwarding = Arc::new(tokio::sync::Mutex::new(()));
     let sender = audio_tx.clone();
-    let reader = tokio::spawn(async move { while let Some(frame) = input.receiver.recv().await { if sender.send(frame).await.is_err() { break; } } drop(input); });
+    let reader = tokio::spawn(async move { while let Some(frame) = input_receiver.recv().await { if sender.send(frame).await.is_err() { break; } } });
     let client = reqwest::Client::new();
     let mut encoder = match Encoder::new(RATE, Channels::Mono, Application::Voip) {
         Ok(encoder) => encoder,
