@@ -4,7 +4,7 @@ mod server;
 
 use eframe::egui;
 use serde_json::{json, Value};
-use std::{sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant}};
+use std::{io::{BufRead, BufReader}, sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings }
@@ -33,6 +33,10 @@ struct NativeApp {
     task_prompt: String,
     task_interval: String,
     conversation_title: String,
+    chat_draft: String,
+    chat_messages: Vec<(String, String)>,
+    chat_thread: String,
+    chat_busy: bool,
     memory_text: String,
     settings_name: String,
     settings: Value,
@@ -63,7 +67,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -104,13 +108,15 @@ impl NativeApp {
                         "capture" => self.data["capture"] = value,
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
-                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.data["capture"] = Value::Null; self.refresh(); }
+                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.data["capture"] = Value::Null; self.refresh(); }
+                        "chat-delta" => { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } }
+                        "chat-done" => self.chat_busy = false,
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
                         "mutation" => self.refresh(),
                         _ => {}
                     }
                 }
-                Err(message) => self.error = Some(message),
+                Err(message) => { if tag.starts_with("chat-") { self.chat_busy = false; } self.error = Some(message); }
             }
         }
         if self.last_refresh.elapsed() > Duration::from_secs(8) { self.refresh(); self.last_refresh = Instant::now(); }
@@ -186,10 +192,97 @@ impl NativeApp {
         ui.add_space(12.0);
         for thread in self.workspace["conversations"].as_array().into_iter().flatten() {
             let id = thread["id"].as_str().unwrap_or("");
-            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.data["capture"] = Value::Null; self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); }
+            if ui.selectable_label(self.selected_thread == id, format!("{}  ·  {}", thread["title"].as_str().unwrap_or("Conversation"), id)).clicked() { self.selected_thread = id.to_owned(); self.chat_thread = id.to_owned(); self.chat_messages.clear(); self.data["capture"] = Value::Null; self.request("capture", "GET", &format!("/conversations/{id}/capture"), None); }
         }
         if !self.data["capture"].is_null() { ui.separator(); ui.heading("Captured result"); ui.label(self.data["capture"].to_string()); }
         for call in self.workspace["calls"].as_array().into_iter().flatten() { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
+        if !self.selected_thread.is_empty() {
+            ui.separator();
+            ui.heading("Chat");
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                for (role, text) in &self.chat_messages {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new(if role == "assistant" { "AETHER" } else { "You" }).strong());
+                        ui.label(text);
+                    });
+                    ui.add_space(8.0);
+                }
+            });
+            ui.add(egui::TextEdit::multiline(&mut self.chat_draft).desired_rows(2).hint_text("Message your Dot…"));
+            if ui.add_enabled(!self.chat_busy && !self.chat_draft.trim().is_empty(), egui::Button::new(if self.chat_busy { "Thinking…" } else { "Send" })).clicked() { self.send_chat(); }
+        }
+    }
+
+    fn send_chat(&mut self) {
+        let text = self.chat_draft.trim().to_owned();
+        if text.is_empty() || self.chat_busy { return; }
+        let Some(dot_id) = self.workspace["conversations"].as_array().into_iter().flatten()
+            .find(|thread| thread["id"].as_str() == Some(&self.selected_thread))
+            .and_then(|thread| thread["dotId"].as_str()).map(str::to_owned) else {
+                self.error = Some("The selected conversation has no specialist Dot.".into());
+                return;
+            };
+        let thread_id = self.selected_thread.clone();
+        let tx = self.tx.clone();
+        let base = self.base.clone();
+        let token = self.token.clone();
+        self.chat_draft.clear();
+        self.chat_messages.push(("user".into(), text));
+        self.chat_messages.push(("assistant".into(), String::new()));
+        self.chat_thread = thread_id.clone();
+        self.chat_busy = true;
+        self.error = None;
+        let messages = self.chat_messages.iter().take(self.chat_messages.len().saturating_sub(1)).enumerate()
+            .map(|(index, (role, content))| json!({"id":format!("aether-{index}"),"role":role,"content":content})).collect::<Vec<_>>();
+        thread::spawn(move || {
+            let result = (|| -> Result<(), String> {
+                let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(300)).build().map_err(|e| e.to_string())?;
+                let url = format!("{base}/api/copilotkit/agent/{dot_id}/run");
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+                let mut request = client.post(url).header("Accept", "text/event-stream");
+                if let Some(token) = token { request = request.bearer_auth(token); }
+                let response = request.json(&json!({"threadId":thread_id,"runId":format!("aether-{now}"),"state":Value::Null,"messages":messages,"tools":[],"context":[],"forwardedProps":{}}))
+                    .send().map_err(|e| format!("Chat request failed: {e}"))?;
+                let status = response.status();
+                if !status.is_success() {
+                    let body = response.json::<Value>().unwrap_or_else(|_| json!({}));
+                    return Err(body["error"].as_str().unwrap_or("The assistant run failed.").to_owned());
+                }
+                let mut reader = BufReader::new(response);
+                let mut line = String::new();
+                let mut event_type = String::new();
+                let mut payload = String::new();
+                let mut got_text = false;
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 { break; }
+                    let line = line.trim_end_matches(&['\\r', '\\n'][..]);
+                    if let Some(value) = line.strip_prefix("event:") { event_type = value.trim().to_owned(); }
+                    else if let Some(value) = line.strip_prefix("data:") { if !payload.is_empty() { payload.push('\\n'); } payload.push_str(value.trim_start()); }
+                    else if line.is_empty() && !payload.is_empty() {
+                        if let Ok(event) = serde_json::from_str::<Value>(&payload) {
+                            let kind = event["type"].as_str().unwrap_or(&event_type);
+                            if kind.contains("RUN_ERROR") || kind.contains("RUN_FAILED") || kind.contains("run_error") {
+                                return Err(event["message"].as_str().unwrap_or("The assistant run failed.").to_owned());
+                            }
+                            if kind.contains("TEXT_MESSAGE_CONTENT") || kind.contains("text_message_content") {
+                                if let Some(delta) = event["delta"].as_str().or_else(|| event["content"].as_str()) {
+                                    got_text |= !delta.is_empty();
+                                    let _ = tx.send(("chat-delta".into(), Ok(json!({"delta":delta}))));
+                                }
+                            }
+                        }
+                        event_type.clear(); payload.clear();
+                    }
+                }
+                if !got_text { return Err("The run ended without a text response.".into()); }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => { let _ = tx.send(("chat-done".into(), Ok(json!({})))); }
+                Err(message) => { let _ = tx.send(("chat-error".into(), Err(message))); }
+            }
+        });
     }
 
     fn render_spaces(&mut self, ui: &mut egui::Ui) {
