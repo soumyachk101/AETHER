@@ -1,13 +1,13 @@
 # AETHER Swift desktop app
 
-AETHER is a native macOS desktop shell for the OpenDots web app. It starts the local
+AETHER is a native macOS desktop shell for the AETHER web workspace. It starts the local
 Node server when needed, embeds it in native WKWebView, and stops only the
 server process it started.
 
 ## Requirements
 
 - macOS 13 or later, Xcode Command Line Tools, and Swift 5.9 or later.
-- Node.js 24 or later and the OpenDots web app in `AETHER-web/`. Run `npm ci` and `npm run build` in `AETHER-web/`.
+- Node.js 24 or later and the web app in `AETHER-web/`. Run `npm ci` and `npm run build` in `AETHER-web/`.
 
 ## Build
 
@@ -33,7 +33,7 @@ swift run
 
 ## Features
 
-- **Full OpenDots Web Experience**: Renders the exact UI and features of OpenDots (`AETHER-web`) including CopilotKit conversational AI, TipTap rich text documents & markdown editor, Spaces, Pages, task activity, and connected services.
+- **Full AETHER Workspace Experience**: Renders the exact UI and features of `AETHER-web` including CopilotKit conversational AI, TipTap rich text documents & markdown editor, Spaces, Pages, task activity, and connected services.
 - **Native Chat & Voice**: Native WebRTC voice calls and media capture with microphone permissions automatically granted via WKWebView.
 - **Server Lifecycle Supervision**: Auto-discovers `AETHER-web/`, compiles artifacts with `npm run build` if missing, starts the local server on `127.0.0.1:4310`, and cleanly shuts down the child process on application termination.
 - **Authentication**: Reads `OWNER_TOKEN` from `.env` or the environment and injects it into `sessionStorage` at document start for instant authentication.
@@ -49,4 +49,4 @@ swift run
 ## Server Output & Logs
 
 Server output is streamed to:
-`~/Library/Logs/dibi AETHER/server.log`
+`~/Library/Logs/AETHER/server.log`

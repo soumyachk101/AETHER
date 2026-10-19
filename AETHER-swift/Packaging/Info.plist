@@ -9,7 +9,7 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.dibi.aether</string>
+    <string>com.soumya.aether</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -31,15 +31,15 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>AETHER connects to the OpenDots server running on this Mac.</string>
+    <string>AETHER connects to the local server running on this Mac.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>AETHER uses your microphone for real-time voice interactions with OpenDots agents.</string>
+    <string>AETHER uses your microphone for real-time voice interactions with AETHER agents.</string>
     <key>NSHumanReadableCopyright</key>
-    <string>AETHER · OpenDots desktop shell</string>
+    <string>AETHER · Desktop workspace</string>
 </dict>
 </plist>
