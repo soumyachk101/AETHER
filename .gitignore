@@ -8,5 +8,9 @@
 
 # Standard build ignores
 AETHER-rust/target/
+AETHER-rust/dist/
 AETHER-swift/.build/
+AETHER-swift/dist/
 .DS_Store
+agent.md
+
