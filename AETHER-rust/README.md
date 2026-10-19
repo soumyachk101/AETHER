@@ -9,6 +9,7 @@ The crate is named `dibi-aether`; the binary is `aether`. Platform packaging ren
 ### Windows
 
 - Windows 10/11, Rust 1.85+ with the MSVC toolchain, and Visual Studio Build Tools with the C++ workload.
+- CMake 3.15+ on `PATH` (the Opus audio codec is built from its bundled source).
 - Node.js 24 or newer.
 - The web app must be installed and built (run in the OpenDots app directory, i.e. `AETHER-web/`):
 
@@ -23,8 +24,8 @@ Install Rust 1.85+ and the X11 or Wayland desktop development dependencies requi
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential pkg-config libx11-dev libxkbcommon-dev \
-  libwayland-dev libegl1-mesa-dev
+sudo apt install -y build-essential cmake pkg-config libasound2-dev libopus-dev \
+  libx11-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 ```
 
 Then install Node.js 24+ and build the OpenDots app (`npm ci && npm run build` in AETHER-web/).
@@ -76,7 +77,7 @@ Build the web app first (`npm ci && npm run build` in `AETHER-web/`), then run t
 .\scripts\build-windows.ps1
 ```
 
-Each script compiles a release binary and places a portable bundle under `dist/<platform>/`. Launch `dist/linux/AETHER` on Linux or `dist/windows/AETHER.exe` on Windows. Each bundle includes a README with launch and environment-variable instructions. The app still needs access to the built OpenDots app root and its `node_modules`; set `OPENDOTS_ROOT` if the root is not auto-detected.
+Each script compiles a release binary and places a portable bundle under `dist/<platform>/`. Launch `dist/linux/AETHER` on Linux or `dist/windows/AETHER.exe` on Windows. Each bundle includes a README with launch and environment-variable instructions. The app still needs access to the built OpenDots app root and its `node_modules`; set `OPENDOTS_ROOT` if the root is not auto-detected. Voice calls use the system default microphone and speaker. Linux builds need ALSA development files and the Opus runtime library; Windows builds link Opus statically and need CMake while building.
 
 Linux targets need an X11 or Wayland session, XKB and OpenGL runtime libraries, and Node.js 24+ available on `PATH`. Windows targets need Node.js 24+ available on `PATH`; no WebView2 runtime is required. Both platforms need the built OpenDots app to start the local server. Windows signing remains opt-in with `-Sign`; it is skipped with a warning if the certificate or `signtool.exe` is unavailable.
 
