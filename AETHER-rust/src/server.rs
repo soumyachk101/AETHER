@@ -11,7 +11,7 @@ fn log_path() -> Result<PathBuf, String> {
     let base = env::var_os("LOCALAPPDATA").map(PathBuf::from).or_else(dirs::data_local_dir);
     #[cfg(not(target_os = "windows"))]
     let base = dirs::data_local_dir();
-    base.map(|p| p.join("dibi-aether").join("server.log")).ok_or("Could not determine the AETHER log directory".into())
+    base.map(|p| p.join("aether").join("server.log")).ok_or("Could not determine the AETHER log directory".into())
 }
 
 fn log(message: &str) {
@@ -28,15 +28,16 @@ pub fn record_failure(message: &str) { log(&format!("Startup failure: {message}"
 
 fn valid_root(path: &Path) -> bool {
     let package = fs::read_to_string(path.join("package.json")).unwrap_or_default();
-    (package.contains("\"name\": \"opendots\"") || package.contains("\"name\":\"opendots\""))
+    (package.contains("\"name\": \"aether\"") || package.contains("\"name\":\"aether\"")
+        || package.contains("\"name\": \"opendots\"") || package.contains("\"name\":\"opendots\""))
         && (path.join("src/server/index.ts").is_file() || path.join("dist/server/server/index.js").is_file())
 }
 
 fn resolve_root() -> Result<PathBuf, String> {
-    if let Some(root) = env::var_os("OPENDOTS_ROOT") {
+    if let Some(root) = env::var_os("AETHER_ROOT").or_else(|| env::var_os("OPENDOTS_ROOT")) {
         let p = PathBuf::from(root);
         if valid_root(&p) { return Ok(p); }
-        return Err(format!("OPENDOTS_ROOT does not contain the OpenDots package.json: {}", p.display()));
+        return Err(format!("AETHER_ROOT does not contain the package.json: {}", p.display()));
     }
     let mut candidates = Vec::new();
     if let Ok(cwd) = env::current_dir() { candidates.extend(cwd.ancestors().map(Path::to_path_buf)); }
@@ -46,7 +47,7 @@ fn resolve_root() -> Result<PathBuf, String> {
         let app = candidate.join("AETHER-web");
         if valid_root(&app) { return Ok(app); }
     }
-    Err("Could not find the OpenDots project. Set OPENDOTS_ROOT to the app directory containing package.json.".into())
+    Err("Could not find the AETHER project. Set AETHER_ROOT or OPENDOTS_ROOT to the app directory containing package.json.".into())
 }
 
 pub fn owner_token() -> Option<String> {
@@ -102,16 +103,16 @@ pub fn launch() -> Result<(String, Option<OwnedServer>), String> {
     let url = attach.unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
     if !url.starts_with("http://") { return Err("AETHER_URL must use http:// for local server health checks".into()); }
     if env::var("AETHER_URL").is_ok() || env::var("OPENDOTS_URL").is_ok() {
-        log(&format!("Attaching to the OpenDots API at {url}"));
+        log(&format!("Attaching to the AETHER API at {url}"));
         return wait_for(url, None);
     }
     let root = resolve_root()?;
     let entry = root.join("dist/server/server/index.js");
-    if !entry.is_file() || !root.join("node_modules").is_dir() { return Err(format!("OpenDots is not built in {}. Run npm ci and npm run build.", root.display())); }
+    if !entry.is_file() || !root.join("node_modules").is_dir() { return Err(format!("AETHER is not built in {}. Run npm ci and npm run build.", root.display())); }
     let path = log_path()?;
     if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| format!("Could not create log directory: {e}"))?; }
     let file = OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("Could not open AETHER log: {e}"))?;
-    log(&format!("Starting OpenDots from {} on port {port}", root.display()));
+    log(&format!("Starting AETHER from {} on port {port}", root.display()));
     let mut command = Command::new("node");
     command.args(["--env-file-if-exists=.env", "dist/server/server/index.js"]).current_dir(&root)
         .env("HOST", "127.0.0.1").env("PORT", &port).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -131,19 +132,19 @@ fn wait_for(url: String, mut owned: Option<OwnedServer>) -> Result<(String, Opti
     while Instant::now() < deadline {
         if ready(&url) { log(&format!("Server ready at {url}")); return Ok((url, owned)); }
         if let Some(server) = owned.as_mut() {
-            if let Ok(Some(status)) = server.child.try_wait() { return Err(format!("OpenDots server exited during startup ({status}). See the AETHER server log.")); }
+            if let Ok(Some(status)) = server.child.try_wait() { return Err(format!("AETHER server exited during startup ({status}). See the AETHER server log.")); }
         }
         thread::sleep(Duration::from_millis(250));
     }
     stop(&mut owned);
-    Err(format!("Timed out waiting for OpenDots at {url}. See the AETHER server log."))
+    Err(format!("Timed out waiting for AETHER at {url}. See the AETHER server log."))
 }
 
 pub fn stop(server: &mut Option<OwnedServer>) {
     if let Some(s) = server.as_mut() {
         let _ = s.child.kill();
         let _ = s.child.wait();
-        log("Stopped the OpenDots child process");
+        log("Stopped the AETHER child process");
     }
     *server = None;
 }
@@ -152,12 +153,12 @@ pub fn check_exit(server: &mut Option<OwnedServer>) -> Option<String> {
     let child = &mut server.as_mut()?.child;
     match child.try_wait() {
         Ok(Some(status)) => {
-            let message = format!("The OpenDots server exited unexpectedly ({status}). See the AETHER server log.");
+            let message = format!("The AETHER server exited unexpectedly ({status}). See the AETHER server log.");
             log(&message);
             server.take();
             Some(message)
         }
-        Err(error) => { let message = format!("Could not monitor the OpenDots server: {error}"); log(&message); server.take(); Some(message) }
+        Err(error) => { let message = format!("Could not monitor the AETHER server: {error}"); log(&message); server.take(); Some(message) }
         Ok(None) => None,
     }
 }

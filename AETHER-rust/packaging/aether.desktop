@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=OpenDots AETHER
-GenericName=OpenDots Desktop Client
-Comment=Native desktop client for the self-hosted OpenDots app
+Name=AETHER
+GenericName=AETHER Desktop
+Comment=Native desktop shell for AETHER
 Exec=AETHER
 TryExec=AETHER
 Terminal=false
