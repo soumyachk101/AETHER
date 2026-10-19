@@ -47,8 +47,9 @@ The app starts the OpenDots Node server on 127.0.0.1:4310 and stops it on exit.
 The web app must already be built (npm ci && npm run build in the OpenDots app
 directory). If it lives elsewhere, set OPENDOTS_ROOT to its absolute path.
 
-Requirements: an X11 or Wayland desktop session, XKB and OpenGL runtime
-libraries, Node.js 24+, and the built OpenDots dist/ output.
+Requirements: an X11 or Wayland desktop session, XKB, OpenGL, ALSA, and Opus
+runtime libraries, Node.js 24+, and the built OpenDots dist/ output. Voice calls
+use the system default microphone and speaker.
 
 Environment overrides:
   OPENDOTS_ROOT   OpenDots project root (contains package.json and src/server/index.ts)
