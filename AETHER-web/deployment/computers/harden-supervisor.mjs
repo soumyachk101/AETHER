@@ -2,13 +2,13 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 // Fail closed if the pinned upstream contract changes. Only child authentication
-// changes; OpenBot retains ownership of container creation, volumes and lifecycle.
+// changes; AETHER retains ownership of container creation, volumes and lifecycle.
 export function hardenSupervisorEnvironment(source) {
   const before =
     'const computerToken = env.COMPUTER_TOKEN?.trim() || undefined;';
   if (source.split(before).length !== 2)
     throw new Error(
-      'Pinned OpenBot environment contract changed; review before building.',
+      'Pinned computer supervisor environment contract changed; review before building.',
     );
   return `import { createHmac } from "node:crypto";\n${source.replace(
     before,

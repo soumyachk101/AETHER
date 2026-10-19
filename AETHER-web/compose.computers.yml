@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: deployment/computers/supervisor.Dockerfile
       additional_contexts:
-        openbot: ${AETHER_BOT_REPO:-https://github.com/soumyachk101/AETHER.git#main}
+        aether-bot: ${AETHER_BOT_REPO:-https://github.com/soumyachk101/AETHER.git#main}
     ports:
       - '127.0.0.1:4312:4300'
     environment:
