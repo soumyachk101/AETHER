@@ -8,6 +8,7 @@ struct ChatMessage: Identifiable, Codable {
     var tool: String? = nil
     var arguments: [String: AnyCodable]? = nil
     var result: String? = nil
+    var rawToolArguments = ""
 }
 
 struct AnyCodable: Codable { let value: Any
@@ -63,6 +64,13 @@ final class ConversationClient: ObservableObject {
                         let value = (event["delta"] as? String) ?? (event["content"] as? String) ?? ""
                         if type.contains("TEXT_MESSAGE_CONTENT") || type.contains("text_message_content") {
                             if let i = messages.lastIndex(where: { $0.id == assistant.id }) { messages[i].text += value }
+                        } else if type.contains("TOOL_CALL_ARGS") || type.contains("tool_call_args") {
+                            let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? ""
+                            let delta = event["delta"] as? String ?? ""
+                            if let i = messages.firstIndex(where: { $0.id == id }) {
+                                messages[i].rawToolArguments += delta
+                                if let data = messages[i].rawToolArguments.data(using: .utf8), let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { messages[i].arguments = args.mapValues(AnyCodable.init) }
+                            }
                         } else if type.contains("TOOL_CALL") || type.contains("tool_call") {
                             let name = event["toolName"] as? String ?? event["name"] as? String ?? ""
                             let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? UUID().uuidString
