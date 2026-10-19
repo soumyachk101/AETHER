@@ -4,7 +4,6 @@ WORKDIR /app
 COPY --from=openbot supervisor/package.json supervisor/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY --from=openbot supervisor/src ./src
-COPY deployment/computers/LICENSE.aether-computer ./LICENSE
 COPY deployment/computers/harden-supervisor.mjs /tmp/harden-supervisor.mjs
 RUN bun /tmp/harden-supervisor.mjs /app/src/environment.ts && rm /tmp/harden-supervisor.mjs
 EXPOSE 4300
