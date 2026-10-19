@@ -27,8 +27,10 @@ fn log(message: &str) {
 pub fn record_failure(message: &str) { log(&format!("Startup failure: {message}")); }
 
 fn valid_root(path: &Path) -> bool {
-    let package = fs::read_to_string(path.join("package.json")).unwrap_or_default();
-    package.contains("\"name\":\"opendots\"") || package.contains("\"name\": \"opendots\"")
+    let Ok(package) = fs::read_to_string(path.join("package.json")) else { return false };
+    let Ok(package) = serde_json::from_str::<serde_json::Value>(&package) else { return false };
+    package.get("name").and_then(serde_json::Value::as_str) == Some("opendots")
+        && path.join("src/server/index.ts").is_file()
 }
 
 fn resolve_root() -> Result<PathBuf, String> {
@@ -101,7 +103,7 @@ pub fn launch() -> Result<(String, Option<OwnedServer>), String> {
     let url = attach.unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
     if !url.starts_with("http://") { return Err("AETHER_URL must use http:// for local server health checks".into()); }
     if env::var("AETHER_URL").is_ok() || env::var("OPENDOTS_URL").is_ok() {
-        log(&format!("Attaching read-only to {url}"));
+        log(&format!("Attaching to the OpenDots API at {url}"));
         return wait_for(url, None);
     }
     let root = resolve_root()?;
