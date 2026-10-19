@@ -251,10 +251,12 @@ export function App() {
   if (needsAuth)
     return (
       <main className="unlock">
-        <Mascot />
-        <h1>Your own little corner.</h1>
+        <div className="unlock-logo-wrapper">
+          <img src="/logo.png" alt="AETHER logo" className="unlock-brand-logo" />
+        </div>
+        <h1>Welcome to AETHER</h1>
         <p>
-          Enter the owner access token configured on this template’s server.
+          Enter your owner access token to unlock your private AETHER workspace.
         </p>
         <form
           onSubmit={async (e) => {
@@ -294,8 +296,11 @@ export function App() {
   if (!state || !workspace || !dot)
     return (
       <main className="unlock">
-        <Mascot state="working" />
-        <h1>Finding your dots…</h1>
+        <div className="unlock-logo-wrapper">
+          <img src="/logo.png" alt="AETHER logo" className="unlock-brand-logo pulse" />
+        </div>
+        <h1>Starting AETHER…</h1>
+        <p className="muted">Connecting to your workspace and intelligence models…</p>
         {error && (
           <>
             <p className="chat-error">{error}</p>
