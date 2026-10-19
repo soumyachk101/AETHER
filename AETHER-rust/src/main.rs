@@ -53,6 +53,8 @@ struct NativeApp {
     connection_token: String,
     computer_url: String,
     computer_text: String,
+    computer_screen: Value,
+    chat_tools: Vec<Value>,
     computer_path: String,
     computer_command: String,
     selected_memory: String,
@@ -81,7 +83,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), page_context: Value::Null, server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_screen: Value::Null, chat_tools: Vec::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), page_context: Value::Null, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -133,7 +135,8 @@ impl NativeApp {
                             }
                         }
                         "computer" => self.computer = value,
-                        "computer-action" => self.computer_text = value.to_string(),
+                        "computer-action" => { self.computer_text = value.to_string(); if value["base64"].is_string() { self.computer_screen = value; } },
+                        "chat-tool" => { self.chat_tools.push(value); }
                         "connection-added" => { self.connection_name.clear(); self.connection_url.clear(); self.connection_token.clear(); self.refresh_dot_tools(); }
                         "memory-saved" => { self.selected_memory.clear(); self.memory_text.clear(); self.refresh(); }
                         "task-detail" => self.selected_task = value,
@@ -145,9 +148,12 @@ impl NativeApp {
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
                         "page-conversation" => { self.selected_thread=value["id"].as_str().unwrap_or("").into(); self.selected_dot=value["dotId"].as_str().unwrap_or(&self.selected_dot).into(); self.screen=Screen::Conversations; self.chat_messages.clear(); self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.refresh(); }
                         "conversation-page" => { self.selected_space=value["spaceId"].as_str().unwrap_or("").into(); self.selected_page=value["id"].as_str().unwrap_or("").into(); self.screen=Screen::Spaces; self.request("page-read","GET",&format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),None); self.refresh_pages(); }
-                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
+                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.chat_tools.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
+                        "chat-tool-result" => { self.chat_messages.push(("assistant".into(),format!("Page review result: {}",value))); self.refresh(); }
+                        "connection-approval" => self.chat_messages.push(("assistant".into(),format!("Approval details: {}",value))),
+                        "connection-run" => self.chat_messages.push(("assistant".into(),format!("Connected service result: {}",value))),
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
                         "mutation" => { self.refresh(); if !self.selected_dot.is_empty() { self.refresh_dot_tools(); } },
                         _ => {}
@@ -250,12 +256,16 @@ impl NativeApp {
         }
         if !self.data["capture"].is_null() { ui.separator(); ui.heading("Captured result"); ui.label(self.data["capture"].to_string()); }
         for call in self.workspace["calls"].as_array().into_iter().flatten().filter(|call| call["threadId"].as_str()==Some(&self.selected_thread)) { ui.label(format!("Call {} — {}", call["status"], call["transcript"].as_str().unwrap_or(""))); }
-        ui.label("Voice calls require browser WebRTC; this native client does not support audio calls.");
+        ui.label("Voice calls are unavailable: this native client has no WebRTC/audio stack.");
         if !self.selected_thread.is_empty() {
             ui.separator();
             ui.heading("Chat");
             if !self.page_context.is_null(){ui.label(format!("Working on page: {}",self.page_context["title"].as_str().unwrap_or("Page")));}
             ui.horizontal(|ui|{ui.text_edit_singleline(&mut self.conversation_title);if ui.add_enabled(!self.chat_busy,egui::Button::new("Save conversation as page")).clicked(){self.request("conversation-page","POST",&format!("/conversations/{}/page",self.selected_thread),Some(json!({"title":self.conversation_title,"parentId":Value::Null})));}});
+            for tool in self.chat_tools.clone() { ui.group(|ui| { let name=tool["name"].as_str().unwrap_or("Tool"); let call_id=tool["toolCallId"].as_str().unwrap_or(""); let args=&tool["args"]; ui.strong(name); ui.label(args.to_string());
+                if name=="review_space_page" { ui.label("Page draft review"); if ui.button("Approve and save page").clicked(){ self.request("chat-tool-result","POST",&format!("/conversations/{}/reviewed-page",self.selected_thread),Some(json!({"toolCallId":call_id,"title":args["title"],"content":args["content"],"spaceId":args["spaceId"]}))); } if ui.button("Decline draft").clicked(){ self.chat_messages.push(("assistant".into(),"Page draft declined.".into())); } }
+                if name=="request_connection_action" { let approval=args["approvalId"].as_str().unwrap_or(""); if ui.button("Review connected action").clicked(){self.request("connection-approval","GET",&format!("/conversations/{}/connection-approvals/{}",self.selected_thread,approval),None);} if ui.button("Approve and run").clicked(){self.request("connection-run","POST",&format!("/conversations/{}/connection-actions",self.selected_thread),Some(json!({"toolCallId":call_id,"approvalId":approval})));} }
+            }); }
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 for (role, text) in &self.chat_messages {
                     ui.horizontal_wrapped(|ui| {
@@ -321,6 +331,10 @@ impl NativeApp {
                             let kind = event["type"].as_str().unwrap_or(&event_type);
                             if kind.contains("RUN_ERROR") || kind.contains("RUN_FAILED") || kind.contains("run_error") {
                                 return Err(event["message"].as_str().unwrap_or("The assistant run failed.").to_owned());
+                            }
+                            if kind.to_lowercase().contains("tool_call") || kind.to_lowercase().contains("toolcall") {
+                                let name=event["name"].as_str().or_else(||event["toolCall"]["function"]["name"].as_str()).or_else(||event["tool_call"]["name"].as_str());
+                                if let Some(name)=name { let args=event["arguments"].clone().as_str().and_then(|x|serde_json::from_str::<Value>(x).ok()).unwrap_or_else(||event["arguments"].clone()); let id=event["toolCallId"].as_str().or_else(||event["id"].as_str()).unwrap_or(""); let _=tx.send(("chat-tool".into(),Ok(json!({"name":name,"args":args,"toolCallId":id,"event":event})))); }
                             }
                             if kind.contains("TEXT_MESSAGE_CONTENT") || kind.contains("text_message_content") {
                                 if let Some(delta) = event["delta"].as_str().or_else(|| event["content"].as_str()) {
@@ -396,6 +410,8 @@ impl NativeApp {
     }
 }
 
+fn decode_base64(input:&str)->Result<Vec<u8>,String>{ use std::process::{Command,Stdio}; use std::io::Write; let mut child=Command::new("base64").arg("-d").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().map_err(|e|e.to_string())?; child.stdin.take().ok_or("stdin")?.write_all(input.as_bytes()).map_err(|e|e.to_string())?; let out=child.wait_with_output().map_err(|e|e.to_string())?; if out.status.success(){Ok(out.stdout)}else{Err("invalid base64".into())}}
+
 fn ui_computer_actions(app: &mut NativeApp, ui: &mut egui::Ui) {
     if app.selected_dot.is_empty() { ui.label("Choose a Dot to manage its computer."); return; }
     let base=format!("/dots/{}/computer",app.selected_dot);
@@ -413,15 +429,18 @@ fn ui_computer_actions(app: &mut NativeApp, ui: &mut egui::Ui) {
         if ui.button("Refresh").clicked(){app.request("computer","GET",&base,None);}
         if ui.button("Start").clicked(){app.request("computer","POST",&format!("{base}/start"),Some(json!({})));}
         if ui.button("Stop").clicked(){app.request("computer","POST",&format!("{base}/stop"),Some(json!({})));}
-        if ui.button("Take control").clicked(){app.request("computer","POST",&format!("{base}/take"),Some(json!({})));}
+        if ui.add_enabled(app.computer["control"]["requested"].as_bool().unwrap_or(false) || app.computer["control"]["holder"].as_str()==Some("bot"),egui::Button::new("Take control")).clicked(){app.request("computer","POST",&format!("{base}/take"),Some(json!({})));}
         if ui.button("Release control").clicked(){app.request("computer","POST",&format!("{base}/release"),Some(json!({})));}
     });
     if !app.computer["error"].is_null(){ui.colored_label(egui::Color32::DARK_RED,app.computer["error"].as_str().unwrap_or("Computer error"));}
     if app.computer["state"].as_str()==Some("not_configured"){ui.label("No computer service is configured on the server.");}
     ui.separator();ui.heading("Browser");
-    ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_url).hint_text("https://example.com"));if ui.button("Navigate").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"navigate","input":{"url":app.computer_url}})));}if ui.button("Read page").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"read","input":{}})));}});
-    ui.label("Screenshot preview is not rendered in this client. Browser screenshots and snapshots are still available through the server API.");
+    ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_url).hint_text("https://example.com"));if ui.add_enabled(app.computer["state"].as_str()==Some("running") && app.computer["permissions"]["enabled"].as_bool()==Some(true) && app.computer["permissions"]["browser"].as_bool()==Some(true),egui::Button::new("Navigate")).clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"navigate","input":{"url":app.computer_url}})));}if ui.add_enabled(app.computer["state"].as_str()==Some("running") && app.computer["permissions"]["enabled"].as_bool()==Some(true) && app.computer["permissions"]["browser"].as_bool()==Some(true),egui::Button::new("Read page")).clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"read","input":{}})));}});
+    if app.computer["state"].as_str()==Some("running") && app.computer["permissions"]["enabled"].as_bool()==Some(true) && app.computer["permissions"]["browser"].as_bool()==Some(true) { if ui.button("Capture screenshot").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"screenshot","input":{}})));} }
+    if let Some(encoded)=app.computer_screen["base64"].as_str(){ if let Ok(bytes)=base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).map_err(|e|e.to_string()){ if let Ok(image)=image::load_from_memory(&bytes){let rgba=image.to_rgba8();let size=[rgba.width() as usize,rgba.height() as usize];let texture=ui.ctx().load_texture("computer-screen",egui::ColorImage::from_rgba_unmultiplied(size,&rgba),Default::default());ui.image((texture.id(),egui::vec2(600.0,400.0)));} } }
     ui.separator();ui.heading("Files");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_path).hint_text("Relative path"));if ui.button("List directory").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"files_list","input":{"path":app.computer_path}})));}if ui.button("Read file").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"files_read","input":{"path":app.computer_path}})));}});
+    ui.horizontal(|ui|{if ui.button("Snapshot").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"snapshot","input":{}})));} if ui.button("Browser back").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"key","input":{"key":"Alt+Left"}})));} });
+    ui.separator();ui.heading("Human browser control");ui.label("Take control on the computer service before these actions are accepted.");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut app.computer_text).hint_text("Text to type"));if ui.button("Type").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"human_type","input":{"text":app.computer_text}})));}if ui.button("Enter").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"human_key","input":{"key":"Enter"}})));}});
     ui.separator();ui.heading("Terminal");ui.horizontal(|ui|{ui.text_edit_singleline(&mut app.computer_command);if ui.button("Run command").clicked(){app.request("computer-action","POST",&format!("{base}/actions"),Some(json!({"action":"exec","input":{"command":app.computer_command,"timeoutMs":30000}})));}});
     if !app.computer_text.is_empty(){ui.separator();ui.heading("Action result");egui::ScrollArea::vertical().max_height(180.0).show(ui,|ui|{ui.label(&app.computer_text);});}
     if let Some(audit)=app.computer["audit"].as_array(){for entry in audit.iter().rev().take(6){ui.label(format!("{} · {} · {}",entry["action"],entry["actor"],entry["outcome"]));}}
