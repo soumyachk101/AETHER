@@ -20,6 +20,7 @@ echo "==> Building OpenDots web app"
 (cd "$WEB_DIR" && npm ci && npm run build)
 
 echo "==> Building dibi-aether (release)"
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 cargo build --release
 
 BIN="$PROJECT_DIR/target/release/aether"

@@ -151,6 +151,10 @@ struct RootView: View {
             if !voiceThreadID.isEmpty, threadID != voiceThreadID, voice.status != "idle" {
                 Task { await voice.end() }
             }
+            chat.resetHistory()
+            if !threadID.isEmpty, let base = data.base {
+                Task { await chat.loadHistory(threadId: threadID, baseURL: base, token: data.token) }
+            }
         }
         .onChange(of: section) { nextSection in
             if nextSection != .conversations, voice.status != "idle" {
@@ -181,7 +185,7 @@ struct RootView: View {
             Text("A calm place to think with your Dots.").font(.title2).foregroundStyle(.secondary)
             HStack(spacing: 14) { metric("Dots", data.rows("dots", from: data.workspace).count); metric("Conversations", data.rows("conversations", from: data.workspace).count); metric("Pages", data.rows("spaces", from: data.workspace).count); metric("Scheduled", data.rows("tasks", from: data.state).count) }
             Text("Recent conversations").font(.headline)
-            ForEach(Array(data.rows("conversations", from: data.workspace).prefix(6).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId"); section = .conversations } label: { Label(data.str(row,"title"), systemImage: "bubble.left").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain) }
+            ForEach(Array(data.rows("conversations", from: data.workspace).prefix(6).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId"); section = .conversations } label: { Label(data.str(row,"title"), systemImage: "bubble.left").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).disabled(chat.sending || chat.loadingHistory || chat.decidingToolID != nil) }
             Spacer()
         }
     }
@@ -247,14 +251,15 @@ struct RootView: View {
         HStack(spacing: 18) {
             VStack(alignment: .leading) {
                 HStack { Text("Threads").font(.headline); Spacer(); Button { Task { await createConversation() } } label: { Image(systemName: "plus") }.help("New conversation") }
-                ForEach(Array(data.rows("conversations", from: data.workspace).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId"); chat.messages = [] } label: { VStack(alignment: .leading) { Text(data.str(row,"title")).font(.callout); Text(data.str(row,"dotId")).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(9).background(selectedThread == data.str(row,"id") ? .blue.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain) }
+                ForEach(Array(data.rows("conversations", from: data.workspace).enumerated()), id: \.offset) { _, row in Button { selectedThread = data.str(row,"id"); selectedDot = data.str(row,"dotId") } label: { VStack(alignment: .leading) { Text(data.str(row,"title")).font(.callout); Text(data.str(row,"dotId")).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(9).background(selectedThread == data.str(row,"id") ? .blue.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain).disabled(chat.sending || chat.loadingHistory || chat.decidingToolID != nil) }
                 Spacer()
             }.frame(width: 210)
             Divider()
             VStack(spacing: 12) {
                 if selectedThread.isEmpty { emptyState("Choose a conversation", icon: "bubble.left.and.bubble.right", detail: "Start a conversation with one of your Dots.") }
                 else {
-                    if chat.messages.isEmpty { emptyState("No messages in this session", icon: "text.bubble", detail: "This native client keeps the current session in memory. The server does not expose conversation transcript history.") }
+                    if chat.loadingHistory { ProgressView("Loading conversation…") }
+                    else if chat.messages.isEmpty && chat.error == nil { emptyState("No messages yet", icon: "text.bubble", detail: "Send a message to start this conversation.") }
                     voiceControls
                     ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in
                         if m.role == "tool" && m.tool == nil { EmptyView() }
@@ -262,13 +267,13 @@ struct RootView: View {
                         else { HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } }
                     } } }
                     if let error = chat.error { Text(error).foregroundStyle(.red).font(.caption) }
-                    HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }.disabled(allDotsPaused); Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || composer.isEmpty || allDotsPaused) }
+                    HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }.disabled(allDotsPaused || chat.loadingHistory); Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || chat.loadingHistory || composer.isEmpty || allDotsPaused) }
                 }
             }
         }
     }
     private func send() {
-        guard !allDotsPaused else { return }
+        guard !allDotsPaused, !chat.loadingHistory else { return }
         let text = composer
         composer = ""
         Task {

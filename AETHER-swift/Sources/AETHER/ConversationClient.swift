@@ -26,10 +26,87 @@ final class ConversationClient: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var sending = false
     @Published var error: String?
+    @Published var loadingHistory = false
     @Published private(set) var decidingToolID: String?
+    private var historyRequestID: UUID?
+
+    func resetHistory() {
+        historyRequestID = nil
+        loadingHistory = false
+        messages = []
+        error = nil
+    }
+
+    func loadHistory(threadId: String, baseURL: URL, token: String?) async {
+        let requestID = UUID()
+        historyRequestID = requestID
+        loadingHistory = true
+        error = nil
+        defer {
+            if historyRequestID == requestID {
+                loadingHistory = false
+                historyRequestID = nil
+            }
+        }
+        do {
+            let response = try await api("/api/conversations/\(threadId)/messages", baseURL: baseURL, token: token)
+            guard historyRequestID == requestID else { return }
+            let rows = response["messages"] as? [[String: Any]] ?? []
+            var restored: [ChatMessage] = []
+            for row in rows {
+                let role = row["role"] as? String ?? ""
+                let id = row["id"] as? String ?? UUID().uuidString
+                let content = Self.historyContent(row["content"])
+                if role == "user" || role == "assistant" {
+                    restored.append(ChatMessage(id: id, role: role, text: content))
+                    guard role == "assistant", let calls = row["toolCalls"] as? [[String: Any]] else { continue }
+                    for call in calls {
+                        guard let callId = call["id"] as? String else { continue }
+                        let function = call["function"] as? [String: Any] ?? call
+                        let name = function["name"] as? String
+                        let raw = Self.historyArguments(function["arguments"])
+                        let argsData = raw.data(using: .utf8)
+                        let args = (try? argsData.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] }) ?? [:]
+                        restored.append(ChatMessage(id: callId, role: "tool", text: "", tool: name, arguments: args.mapValues(AnyCodable.init), rawToolArguments: raw, toolCallId: callId, parentAssistantId: id))
+                    }
+                } else if role == "tool" {
+                    let callId = row["toolCallId"] as? String ?? row["tool_call_id"] as? String
+                    restored.append(ChatMessage(id: id, role: "tool", text: "", result: content, toolCallId: callId))
+                    if let callId, let index = restored.firstIndex(where: { $0.role == "tool" && $0.toolCallId == callId && $0.tool != nil }) {
+                        restored[index].result = content
+                        if let data = content.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let approved = value["approved"] as? Bool { restored[index].decision = approved }
+                    }
+                }
+            }
+            messages = restored
+        } catch {
+            guard historyRequestID == requestID else { return }
+            messages = []
+            self.error = "Conversation history could not load: \(error.localizedDescription)"
+        }
+    }
+
+    private static func historyArguments(_ value: Any?) -> String {
+        guard let value else { return "{}" }
+        if let raw = value as? String { return raw }
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let raw = String(data: data, encoding: .utf8) else { return "{}" }
+        return raw
+    }
+
+    private static func historyContent(_ value: Any?) -> String {
+        guard let value else { return "" }
+        if let text = value as? String { return text }
+        if let parts = value as? [[String: Any]] {
+            return parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        }
+        guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
 
     func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async -> Bool {
-        guard !sending else { return false }
+        guard !sending, !loadingHistory else { return false }
         sending = true
         error = nil
         defer { sending = false }
