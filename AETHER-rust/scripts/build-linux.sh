@@ -12,7 +12,7 @@ command -v cargo >/dev/null 2>&1 || {
     exit 1
 }
 
-echo "==> Building dibi-aether (release)"
+echo "==> Building AETHER (native Rust release executable)"
 cargo build --release
 
 BIN="$PROJECT_DIR/target/release/aether"
@@ -37,21 +37,25 @@ EOF
 chmod 755 "$DIST_DIR/run.sh"
 
 cat > "$DIST_DIR/README.txt" <<'EOF'
-dibi AETHER (portable Linux bundle)
-===================================
+AETHER (native Linux desktop bundle)
+====================================
 
 Run:
   ./AETHER
 
-The app starts the OpenDots Node server on 127.0.0.1:4310 and stops it on exit.
-The web app must already be built (npm ci && npm run build in the OpenDots app
-directory). If it lives elsewhere, set OPENDOTS_ROOT to its absolute path.
+This bundle contains the native Rust desktop executable, not a web app or
+Node.js runtime. It starts the OpenDots Node server on 127.0.0.1:4310 and
+stops it on exit. Build OpenDots first (npm ci && npm run build in AETHER-web/).
+The app root must include node_modules/ and dist/server/server/index.js. If it
+is not discoverable beside this bundle, set OPENDOTS_ROOT to its absolute path.
 
-Requirements: WebKitGTK 4.1 (libwebkit2gtk-4.1), GTK 3, libsoup 3, Node.js 24+,
-and the OpenDots dist/ output.
+Runtime requirements: WebKitGTK 4.1, GTK 3, libsoup 3, JavaScriptCoreGTK 4.1,
+Node.js 24+ in PATH, and the built OpenDots app with node_modules/. The build
+machine also needs the corresponding development packages, Rust 1.85+, and
+pkg-config (see AETHER-rust/README.md).
 
 Environment overrides:
-  OPENDOTS_ROOT   OpenDots project root (contains package.json and src/server/index.ts)
+  OPENDOTS_ROOT   OpenDots root (package.json, node_modules/, and dist/server/server/index.js)
   AETHER_URL      Attach to an existing server instead of starting one
   AETHER_PORT     Port for the local server (default 4310; PORT also works)
   OWNER_TOKEN     Owner token forwarded to the server
@@ -65,4 +69,5 @@ Desktop entry:
 EOF
 
 echo "==> Built $DIST_DIR"
-echo "    Run: $DIST_DIR/run.sh"
+echo "    Executable: $DIST_DIR/AETHER"
+echo "    Launcher:   $DIST_DIR/run.sh"

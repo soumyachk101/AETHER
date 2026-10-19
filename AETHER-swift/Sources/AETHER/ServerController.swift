@@ -1,10 +1,6 @@
-import Foundation
-#if os(macOS)
 import AppKit
 import Combine
-#else
-import OpenCombine
-#endif
+import Foundation
 
 /// A small lock-protected holder so the Node process can be terminated from
 /// application shutdown callbacks without hopping actors.
@@ -80,29 +76,9 @@ final class ServerController: ObservableObject {
     private var terminationObserver: NSObjectProtocol?
 
     init() {
-        let logBase: URL
-        #if os(macOS)
-        logBase = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs", isDirectory: true)
-        #elseif os(Windows)
-        logBase = URL(
-            fileURLWithPath: ProcessInfo.processInfo.environment["LOCALAPPDATA"]
-                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("AppData/Local").path,
-            isDirectory: true
-        )
-        .appendingPathComponent("dibi-aether", isDirectory: true)
-        #else
-        logBase = URL(
-            fileURLWithPath: ProcessInfo.processInfo.environment["XDG_STATE_HOME"]
-                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/state").path,
-            isDirectory: true
-        )
-        .appendingPathComponent("dibi-aether", isDirectory: true)
-        #endif
-        #if os(macOS)
+        let logBase = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs", isDirectory: true)
         let logDirectory = logBase.appendingPathComponent("dibi AETHER", isDirectory: true)
-        #else
-        let logDirectory = logBase
-        #endif
         try? FileManager.default.createDirectory(
             at: logDirectory,
             withIntermediateDirectories: true
@@ -115,7 +91,6 @@ final class ServerController: ObservableObject {
         try? logHandle?.seekToEnd()
 
         let box = processBox
-        #if os(macOS)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
@@ -123,9 +98,6 @@ final class ServerController: ObservableObject {
         ) { _ in
             box.terminate()
         }
-        #else
-        terminationObserver = nil
-        #endif
     }
 
     deinit {
@@ -279,13 +251,7 @@ final class ServerController: ObservableObject {
     }
 
     func revealLog() {
-        #if os(macOS)
         NSWorkspace.shared.activateFileViewerSelecting([serverLogURL])
-        #elseif os(Windows)
-        _ = Process.launchedProcess(launchPath: "explorer.exe", arguments: [serverLogURL.deletingLastPathComponent().path])
-        #else
-        _ = Process.launchedProcess(launchPath: "/usr/bin/xdg-open", arguments: [serverLogURL.deletingLastPathComponent().path])
-        #endif
     }
 
     private var configuredServerURL: URL? {
@@ -304,16 +270,11 @@ final class ServerController: ObservableObject {
 
     private func launchServer(root: URL) throws {
         let process = Process()
-        #if os(Windows)
-        process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["COMSPEC"] ?? "C:\\Windows\\System32\\cmd.exe")
-        process.arguments = ["/D", "/S", "/C", "node --env-file-if-exists=.env dist/server/server/index.js"]
-        #else
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-lc",
             "exec node --env-file-if-exists=.env dist/server/server/index.js"
         ]
-        #endif
         process.currentDirectoryURL = root
 
         var environment = ProcessInfo.processInfo.environment
@@ -362,13 +323,8 @@ final class ServerController: ObservableObject {
 
     private func runShell(_ command: String, root: URL) async throws {
         let process = Process()
-        #if os(Windows)
-        process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["COMSPEC"] ?? "C:\\Windows\\System32\\cmd.exe")
-        process.arguments = ["/D", "/S", "/C", command]
-        #else
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-lc", command]
-        #endif
         process.currentDirectoryURL = root
         process.environment = ProcessInfo.processInfo.environment
 

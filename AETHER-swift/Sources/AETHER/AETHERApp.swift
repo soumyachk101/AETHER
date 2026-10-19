@@ -1,4 +1,3 @@
-#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -6,75 +5,30 @@ import SwiftUI
 struct AETHERApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var server = ServerController()
-    @StateObject private var web = WebViewStore()
 
     var body: some Scene {
-        WindowGroup("AETHER") {
-            RootView()
-                .environmentObject(server)
-                .environmentObject(web)
+        WindowGroup("OpenDots") {
+            RootView(server: server).environmentObject(server)
         }
-        .defaultSize(width: 1280, height: 840)
+        .defaultSize(width: 960, height: 760)
         .commands {
-            AETHERCommands(server: server, web: web)
+            CommandGroup(replacing: .newItem) {}
+            CommandMenu("OpenDots") {
+                Button("Restart Local Server") { Task { await server.restart() } }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                Button("Open Project Folder") { if let root = server.rootURL { NSWorkspace.shared.open(root) } }
+                    .disabled(server.rootURL == nil)
+                Button("Reveal Server Log in Finder") { server.revealLog() }
+            }
         }
-
-        Settings {
-            SettingsView()
-                .environmentObject(server)
-        }
+        Settings { SettingsView().environmentObject(server) }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
 }
-
-struct AETHERCommands: Commands {
-    @ObservedObject var server: ServerController
-    @ObservedObject var web: WebViewStore
-
-    var body: some Commands {
-        CommandGroup(replacing: .newItem) {}
-
-        CommandMenu("OpenDots") {
-            Button("Reload") {
-                web.reload()
-            }
-            .keyboardShortcut("r", modifiers: .command)
-            .disabled(!server.phase.isReady)
-
-            Button("Open in Browser") {
-                web.openInBrowser()
-            }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(!server.phase.isReady)
-
-            Divider()
-
-            Button("Restart Local Server") {
-                Task { await server.restart() }
-            }
-            .keyboardShortcut("r", modifiers: [.command, .option])
-
-            Button("Open Project Folder") {
-                if let root = server.rootURL {
-                    NSWorkspace.shared.open(root)
-                }
-            }
-            .disabled(server.rootURL == nil)
-
-            Button("Reveal Server Log in Finder") {
-                server.revealLog()
-            }
-        }
-    }
-}
-#endif
