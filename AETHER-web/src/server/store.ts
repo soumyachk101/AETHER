@@ -21,6 +21,14 @@ const defaults: Settings = {
   researchAllowed: true,
   memoryAllowed: true,
   appsAllowed: false,
+  openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o',
+  openaiBaseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+  intelligenceApiKey:
+    process.env.CPK_INTELLIGENCE_API_KEY ??
+    process.env.INTELLIGENCE_API_KEY ??
+    '',
+  providerMode: 'openai',
 };
 export class Store {
   private db: DatabaseSync;

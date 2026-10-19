@@ -12,6 +12,25 @@ export interface Settings {
   researchAllowed: boolean;
   memoryAllowed: boolean;
   appsAllowed: boolean;
+  openaiApiKey?: string;
+  openaiModel?: string;
+  openaiBaseUrl?: string;
+  intelligenceApiKey?: string;
+  providerMode?: 'openai' | 'codex';
+}
+export interface CodexCliStatus {
+  installed: boolean;
+  binaryPath: string | null;
+  version: string | null;
+  loggedIn: boolean;
+  email: string | null;
+  plan: string | null;
+  accountId: string | null;
+  orgName: string | null;
+  hasApiKey: boolean;
+  apiKeyPreview: string | null;
+  hasAccessToken: boolean;
+  authMode: string | null;
 }
 export interface Task {
   id: string;
