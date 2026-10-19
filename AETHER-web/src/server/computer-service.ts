@@ -40,7 +40,7 @@ export class ComputerService {
   }
   private token(id: string) {
     return createHmac('sha256', this.config.computerToken!.trim())
-      .update(`opendots-computer:${id}`)
+      .update(`aether-computer:${id}`)
       .digest('hex');
   }
   private requireDot(id: string) {
@@ -151,7 +151,7 @@ export class ComputerService {
   }
   private endpoint(id: string, raw: unknown) {
     const state = this.parseUpstream(stateSchema, raw);
-    const ns = this.config.computerNamespace ?? 'opendots';
+    const ns = this.config.computerNamespace ?? 'aether';
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(ns))
       throw new Error('Invalid computer namespace.');
     const expected = `${ns}-computer-${id}`;
