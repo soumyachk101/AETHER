@@ -131,7 +131,7 @@ it('status never provisions and actions use per-Dot derived credentials with aud
   expect(new Headers(request.init?.headers).get('authorization')).toBe(
     `Bearer ${createHmac('sha256', 'master-secret').update(`aether-computer:${f.id}`).digest('hex')}`,
   );
-  expect(new Headers(request.init?.headers).get('x-openbot-bot-id')).toBe(f.id);
+  expect(new Headers(request.init?.headers).get('x-aether-bot-id')).toBe(f.id);
   expect(request.init?.redirect).toBe('error');
   f.handle(async () => Response.json({ text: 'result' }));
   const other = f.workspace.createDot(

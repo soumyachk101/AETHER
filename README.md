@@ -17,9 +17,9 @@
 **AETHER** is a unified, self-hosted AI agent workspace and native desktop suite designed for deep focus, intelligence augmentation, and seamless agent orchestration. 
 
 It provides complete parity across the web and native desktop platforms:
-- 🌐 **[AETHER-web](AETHER-web/)**: The core web workspace featuring CopilotKit conversational AI, TipTap rich text documents & markdown editor, multi-agent Dots, MCP integrations, and isolated Docker sandbox computers.
-- 🍏 **[AETHER-swift](AETHER-swift/)**: A native macOS desktop shell wrapping the workspace inside WKWebView with native menu shortcuts, audio/microphone permissions, and background Node.js server lifecycle management.
-- 🦀 **[AETHER-rust](AETHER-rust/)**: A native cross-platform desktop shell for Windows, Linux, and macOS using `wry` and `tao`.
+- **[AETHER-web](AETHER-web/)**: The core web workspace featuring CopilotKit conversational AI, TipTap rich text documents & markdown editor, multi-agent Dots, MCP integrations, and isolated Docker sandbox computers.
+- **[AETHER-swift](AETHER-swift/)**: A native macOS desktop shell wrapping the workspace inside WKWebView with native menu shortcuts, audio/microphone permissions, and background Node.js server lifecycle management.
+- **[AETHER-rust](AETHER-rust/)**: A native cross-platform desktop shell for Windows, Linux, and macOS using `wry` and `tao`.
 
 ---
 
@@ -74,9 +74,16 @@ cargo run --release
 
 ## Documentation
 
-- 📖 [Setup & Installation Guide](docs/SETUP.md)
-- 🔒 [Telemetry & Privacy Settings](docs/SETUP-TELEMETRY.md)
-- 🖥️ [Agent Computers & Sandbox Architecture](docs/COMPUTERS.md)
+- [Setup & Installation Guide](docs/SETUP.md)
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Agent Computers & Sandbox Architecture](docs/COMPUTERS.md)
+- [Telemetry & Privacy Settings](docs/SETUP-TELEMETRY.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Accessibility Statement](ACCESSIBILITY.md)
+- [Security Policy](SECURITY.md)
+- [Support & Help](SUPPORT.md)
+- [Changelog](CHANGELOG.md)
 
 ---
 

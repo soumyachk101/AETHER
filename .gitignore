@@ -5,8 +5,13 @@
 !/.gitignore
 !/README.md
 !/LICENSE
+!/CONTRIBUTING.md
+!/CODE_OF_CONDUCT.md
+!/SECURITY.md
+!/CHANGELOG.md
+!/SUPPORT.md
+!/ACCESSIBILITY.md
 !/docs/
-!/auto_sync.sh
 !/.github/
 !/AETHER-rust/
 !/AETHER-swift/
@@ -25,3 +30,4 @@ AETHER-web/.env.local
 AETHER-web/.env.*.local
 .DS_Store
 agent.md
+auto_sync.sh

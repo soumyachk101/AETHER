@@ -1,4 +1,4 @@
-# OpenBot services pinned to the source revision reviewed for this template.
+# AETHER computer services pinned to AETHER source revision.
 # Build both images; only the supervisor is started directly. It creates one
 # computer per Dot, with separate named volumes for files and browser profiles.
 services:
@@ -6,8 +6,8 @@ services:
     profiles: [build-computers]
     image: aether-computer:latest
     build:
-      context: https://github.com/CopilotKit/OpenBot.git#b6932d31a8d6e7896c15139dfc27a6c6911deb27
-      dockerfile: agent-computer/Dockerfile
+      context: ${AETHER_BOT_REPO:-https://github.com/soumyachk101/AETHER.git#main}
+      dockerfile: AETHER-web/deployment/computers/supervisor.Dockerfile
     command: ['true']
   computer-supervisor:
     image: aether-supervisor:latest
@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: deployment/computers/supervisor.Dockerfile
       additional_contexts:
-        openbot: https://github.com/CopilotKit/OpenBot.git#b6932d31a8d6e7896c15139dfc27a6c6911deb27
+        aether-bot: ${AETHER_BOT_REPO:-https://github.com/soumyachk101/AETHER.git#main}
     ports:
       - '127.0.0.1:4312:4300'
     environment:

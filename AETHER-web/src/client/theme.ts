@@ -8,7 +8,8 @@ const query = () => window.matchMedia('(prefers-color-scheme: dark)');
 export function themePreference(): ThemePreference {
   if (chosen) return chosen;
   try {
-    const value = localStorage.getItem(key) ?? localStorage.getItem('opendots-theme');
+    const value =
+      localStorage.getItem(key) ?? localStorage.getItem('opendots-theme');
     if (value === 'light' || value === 'dark') return value;
   } catch {
     // Fall through to the system theme.
