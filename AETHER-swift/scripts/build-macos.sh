@@ -10,6 +10,7 @@ CONFIGURATION="${CONFIGURATION:-release}"
 
 swift build -c "$CONFIGURATION" --product AETHER
 BIN="$(swift build -c "$CONFIGURATION" --product AETHER --show-bin-path)/AETHER"
+BIN_DIR="$(dirname "$BIN")"
 
 OUT="$ROOT/dist/macos/$APP_NAME.app"
 rm -rf "$OUT"
@@ -17,6 +18,15 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 
 cp "$BIN" "$OUT/Contents/MacOS/AETHER"
 chmod +x "$OUT/Contents/MacOS/AETHER"
+
+FRAMEWORK="$BIN_DIR/PackageFrameworks/WebRTC.framework"
+if [[ ! -d "$FRAMEWORK" ]]; then
+    echo "Missing WebRTC.framework at $FRAMEWORK" >&2
+    exit 1
+fi
+mkdir -p "$OUT/Contents/Frameworks"
+cp -R "$FRAMEWORK" "$OUT/Contents/Frameworks/"
+install_name_tool -add_rpath @executable_path/../Frameworks "$OUT/Contents/MacOS/AETHER"
 
 sed "s/__VERSION__/$VERSION/g" "$ROOT/Packaging/Info.plist" \
     > "$OUT/Contents/Info.plist"
