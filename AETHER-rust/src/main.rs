@@ -59,6 +59,7 @@ struct NativeApp {
     task_search: String,
     selected_task: Value,
     page_dot: String,
+    page_context: Value,
     server: Arc<Mutex<Option<server::OwnedServer>>>,
 }
 
@@ -80,7 +81,7 @@ impl NativeApp {
         let app = Self {
             base: url.trim_end_matches('/').to_owned(), token: server::owner_token(), tx, rx,
             data: json!({}), workspace: json!({}), pages: json!([]), selected_space: String::new(), selected_page: String::new(), selected_thread: String::new(), selected_dot: String::new(), screen: Screen::Home, error: None, server_error: None, last_refresh: Instant::now(),
-            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), server: Arc::new(Mutex::new(server)),
+            space_name: String::new(), space_description: String::new(), page_title: String::new(), page_content: String::new(), page_revision: 1, task_prompt: String::new(), task_interval: "86400".into(), conversation_title: "A new thought".into(), chat_draft: String::new(), chat_messages: Vec::new(), chat_thread: String::new(), chat_busy: false, memory_text: String::new(), settings_name: String::new(), settings: json!({}), dot_name: String::new(), dot_instructions: String::new(), dot_space: String::new(), dot_research: true, dot_memory: true, dot_apps: false, connections: json!([]), computer: json!({}), connection_name: String::new(), connection_url: String::new(), connection_token: String::new(), computer_url: String::new(), computer_text: String::new(), computer_path: String::new(), computer_command: String::new(), selected_memory: String::new(), task_search: String::new(), selected_task: Value::Null, page_dot: String::new(), page_context: Value::Null, server: Arc::new(Mutex::new(server)),
         };
         app.request("refresh", "GET", "/state", None);
         app.request("workspace", "GET", "/workspace", None);
@@ -132,10 +133,12 @@ impl NativeApp {
                         "pages" => self.pages = value,
                         "page-read" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_title = value["title"].as_str().unwrap_or("").to_owned(); self.page_content = value["content"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(1); }
                         "capture" => self.data["capture"] = value,
+                        "page-context" => self.page_context=value,
                         "page-saved" => { self.selected_page = value["id"].as_str().unwrap_or("").to_owned(); self.page_revision = value["revision"].as_i64().unwrap_or(self.page_revision); self.refresh_pages(); }
                         "page-deleted" => { self.selected_page.clear(); self.page_title.clear(); self.page_content.clear(); self.page_revision = 1; self.refresh_pages(); }
-                        "page-conversation" => { self.selected_thread=value["id"].as_str().unwrap_or("").into(); self.selected_dot=value["dotId"].as_str().unwrap_or(&self.selected_dot).into(); self.screen=Screen::Conversations; self.chat_messages.clear(); self.refresh(); }
-                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.data["capture"] = Value::Null; self.refresh(); }
+                        "page-conversation" => { self.selected_thread=value["id"].as_str().unwrap_or("").into(); self.selected_dot=value["dotId"].as_str().unwrap_or(&self.selected_dot).into(); self.screen=Screen::Conversations; self.chat_messages.clear(); self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.refresh(); }
+                        "conversation-page" => { self.selected_space=value["spaceId"].as_str().unwrap_or("").into(); self.selected_page=value["id"].as_str().unwrap_or("").into(); self.screen=Screen::Spaces; self.request("page-read","GET",&format!("/spaces/{}/pages/{}",self.selected_space,self.selected_page),None); self.refresh_pages(); }
+                        "conversation-created" => { self.selected_thread = value["id"].as_str().unwrap_or("").to_owned(); self.chat_thread = self.selected_thread.clone(); self.chat_messages.clear(); self.page_context=Value::Null; self.data["capture"] = Value::Null; self.request("page-context","GET",&format!("/conversations/{}/page-context",self.selected_thread),None); self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None); self.refresh(); }
                         "chat-delta" => { if self.chat_thread == value["threadId"].as_str().unwrap_or("") { if let (Some((role, text)), Some(delta)) = (self.chat_messages.last_mut(), value["delta"].as_str()) { if role == "assistant" { text.push_str(delta); } } } }
                         "chat-done" => self.chat_busy = false,
                         "dot-saved" => { self.selected_dot = value["id"].as_str().unwrap_or("").to_owned(); self.refresh(); }
@@ -146,7 +149,7 @@ impl NativeApp {
                 Err(message) => { if tag.starts_with("chat-") { self.chat_busy = false; } self.error = Some(message); }
             }
         }
-        if self.last_refresh.elapsed() > Duration::from_secs(8) { self.refresh(); self.last_refresh = Instant::now(); }
+        if self.last_refresh.elapsed() > Duration::from_secs(8) { self.refresh(); if !self.selected_thread.is_empty(){self.request("capture","GET",&format!("/conversations/{}/capture",self.selected_thread),None);} self.last_refresh = Instant::now(); }
         if let Ok(mut child) = self.server.lock() { if let Some(message) = server::check_exit(&mut child) { self.server_error = Some(message); } }
     }
 
@@ -244,6 +247,8 @@ impl NativeApp {
         if !self.selected_thread.is_empty() {
             ui.separator();
             ui.heading("Chat");
+            if !self.page_context.is_null(){ui.label(format!("Working on page: {}",self.page_context["title"].as_str().unwrap_or("Page")));}
+            ui.horizontal(|ui|{ui.text_edit_singleline(&mut self.conversation_title);if ui.add_enabled(!self.chat_busy,egui::Button::new("Save conversation as page")).clicked(){self.request("conversation-page","POST",&format!("/conversations/{}/page",self.selected_thread),Some(json!({"title":self.conversation_title,"parentId":Value::Null})));}});
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 for (role, text) in &self.chat_messages {
                     ui.horizontal_wrapped(|ui| {
@@ -278,7 +283,7 @@ impl NativeApp {
         self.chat_busy = true;
         self.error = None;
         let messages = self.chat_messages.iter().take(self.chat_messages.len().saturating_sub(1)).enumerate()
-            .map(|(index, (role, content))| json!({"id":format!("aether-{index}"),"role":role,"content":content})).collect::<Vec<_>>();
+            .map(|(index, (role, content))| {let content=if role=="user"&&!self.page_context.is_null(){format!("From [{}](/#/spaces/{}/pages/{}):\n\n{}",self.page_context["title"].as_str().unwrap_or("Page"),self.page_context["spaceId"].as_str().unwrap_or(""),self.page_context["id"].as_str().unwrap_or(""),content)}else{content.clone()};json!({"id":format!("aether-{index}"),"role":role,"content":content})}).collect::<Vec<_>>();
         thread::spawn(move || {
             let result = (|| -> Result<(), String> {
                 let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(300)).build().map_err(|e| e.to_string())?;
