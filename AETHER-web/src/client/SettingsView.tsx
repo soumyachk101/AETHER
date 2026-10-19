@@ -40,45 +40,238 @@ interface SettingsViewProps {
 
 type TabKey = 'ai' | 'agents' | 'appearance' | 'diagnostics';
 
-const MODEL_PRESETS = [
-  {
-    id: 'gpt-4o',
-    name: 'GPT-4o',
-    badge: 'Recommended',
-    tag: 'Omni',
-    description:
-      'High-intelligence flagship model. Fast, multimodal reasoning.',
-  },
-  {
-    id: 'gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    badge: 'Fast & Cheap',
-    tag: 'Everyday',
-    description: 'Lightweight, rapid response model optimized for daily tasks.',
-  },
+export interface ModelPreset {
+  id: string;
+  name: string;
+  category: 'openai' | 'anthropic' | 'deepseek' | 'google' | 'opensource' | 'xai';
+  badge: string;
+  tag: string;
+  description: string;
+  recommendedEndpoint?: string;
+}
+
+const MODEL_PRESETS: ModelPreset[] = [
+  // --- OPENAI LATEST ---
   {
     id: 'o3-mini',
     name: 'o3-mini',
-    badge: 'Reasoning',
-    tag: 'Code & Math',
+    category: 'openai',
+    badge: 'Reasoning SOTA',
+    tag: 'OpenAI · STEM & Code',
     description:
-      'Frontier reasoning model designed for coding and complex logic.',
+      'Frontier reasoning model with exceptional speed, coding, and mathematical logic.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
   },
   {
     id: 'o1',
     name: 'o1',
+    category: 'openai',
     badge: 'Deep Reasoning',
-    tag: 'Advanced',
+    tag: 'OpenAI · Frontier',
     description:
-      'Spends time thinking before answering to solve deep problems.',
+      'Flagship reasoning model that thinks deeply before answering hard engineering problems.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'o1-mini',
+    name: 'o1-mini',
+    category: 'openai',
+    badge: 'Fast Reasoning',
+    tag: 'OpenAI · Fast STEM',
+    description:
+      'High-speed reasoning model tailored for math, code generation, and pipeline tasks.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
   },
   {
     id: 'gpt-4.5-preview',
-    name: 'GPT-4.5',
-    badge: 'Preview',
-    tag: 'Frontier',
-    description: 'OpenAI’s largest knowledge model with emotional intuition.',
+    name: 'GPT-4.5 Preview',
+    category: 'openai',
+    badge: 'Largest Knowledge',
+    tag: 'OpenAI · Frontier',
+    description:
+      'OpenAI’s massive knowledge model with human-level EQ, writing depth, and synthesis.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
   },
+  {
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    category: 'openai',
+    badge: 'Flagship Omni',
+    tag: 'OpenAI · Multimodal',
+    description:
+      'Versatile multimodal flagship combining high intelligence, speed, and vision reasoning.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'gpt-4o-mini',
+    name: 'GPT-4o Mini',
+    category: 'openai',
+    badge: 'Fast & Cheap',
+    tag: 'OpenAI · Everyday',
+    description:
+      'Lightweight, rapid response workhorse optimized for daily tasks and high throughput.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'chatgpt-4o-latest',
+    name: 'ChatGPT-4o Latest',
+    category: 'openai',
+    badge: 'Dynamic Sync',
+    tag: 'OpenAI · ChatGPT',
+    description:
+      'Continuously updated model matching the active version used in ChatGPT Plus.',
+    recommendedEndpoint: 'https://api.openai.com/v1',
+  },
+
+  // --- ANTHROPIC CLAUDE ---
+  {
+    id: 'claude-3-7-sonnet-20250219',
+    name: 'Claude 3.7 Sonnet',
+    category: 'anthropic',
+    badge: 'Hybrid Thinking',
+    tag: 'Anthropic · Frontier',
+    description:
+      'World-leading hybrid reasoning and coding model with customizable thinking capability.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'claude-3-5-sonnet-latest',
+    name: 'Claude 3.5 Sonnet v2',
+    category: 'anthropic',
+    badge: 'Coding SOTA',
+    tag: 'Anthropic · Engineer',
+    description:
+      'Industry benchmark for autonomous code generation, system architecture, and tool usage.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'claude-3-5-haiku-latest',
+    name: 'Claude 3.5 Haiku',
+    category: 'anthropic',
+    badge: 'Instant Speed',
+    tag: 'Anthropic · Sub-sec',
+    description:
+      'Near-instantaneous response speed with intelligence surpassing previous Claude 3 Opus.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+
+  // --- DEEPSEEK ---
+  {
+    id: 'deepseek-reasoner',
+    name: 'DeepSeek-R1',
+    category: 'deepseek',
+    badge: 'Open Reasoning',
+    tag: 'DeepSeek · SOTA',
+    description:
+      'Open-weights reasoning powerhouse on par with OpenAI o1, built with native chain-of-thought.',
+    recommendedEndpoint: 'https://api.deepseek.com/v1',
+  },
+  {
+    id: 'deepseek-chat',
+    name: 'DeepSeek-V3',
+    category: 'deepseek',
+    badge: '671B MoE',
+    tag: 'DeepSeek · General',
+    description:
+      'State-of-the-art open mixture-of-experts model delivering exceptional reasoning at minimal cost.',
+    recommendedEndpoint: 'https://api.deepseek.com/v1',
+  },
+
+  // --- GOOGLE GEMINI ---
+  {
+    id: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    category: 'google',
+    badge: 'Next-Gen Frontier',
+    tag: 'Google · Reasoning',
+    description:
+      'Google’s highest intelligence reasoning model designed for complex multi-step problems.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
+    category: 'google',
+    badge: '1M Context & Fast',
+    tag: 'Google · Speed',
+    description:
+      'Blazing-fast multimodal intelligence with 1M context window and real-time tool calling.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'gemini-2.0-flash-thinking-exp-01-21',
+    name: 'Gemini 2.0 Flash Thinking',
+    category: 'google',
+    badge: 'Thinking Mode',
+    tag: 'Google · CoT',
+    description:
+      'Experimental reasoning variant of Gemini 2.0 with visible reasoning tokens before output.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'gemini-1.5-pro',
+    name: 'Gemini 1.5 Pro',
+    category: 'google',
+    badge: '2M Context',
+    tag: 'Google · Ultra Context',
+    description:
+      'Massive 2-million token context window designed to analyze entire codebases and books.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+
+  // --- OPEN WEIGHTS / META / QWEN ---
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct',
+    name: 'Llama 3.3 70B',
+    category: 'opensource',
+    badge: 'Open Frontier',
+    tag: 'Meta · 70B',
+    description:
+      'State-of-the-art open weights model delivering 405B-grade performance in efficient 70B size.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'qwen/qwen-2.5-coder-32b-instruct',
+    name: 'Qwen 2.5 Coder 32B',
+    category: 'opensource',
+    badge: 'Elite Code',
+    tag: 'Alibaba · Coder',
+    description:
+      'Premier code-specialized open model rivaling proprietary frontier models in software engineering.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+  {
+    id: 'meta-llama/llama-3.1-405b-instruct',
+    name: 'Llama 3.1 405B',
+    category: 'opensource',
+    badge: 'Massive MoE',
+    tag: 'Meta · 405B',
+    description:
+      'Meta’s largest flagship model for synthetic data, knowledge synthesis, and complex planning.',
+    recommendedEndpoint: 'https://openrouter.ai/api/v1',
+  },
+
+  // --- XAI ---
+  {
+    id: 'grok-2',
+    name: 'Grok 2',
+    category: 'xai',
+    badge: 'Frontier Vision',
+    tag: 'xAI · Reasoning',
+    description:
+      'State-of-the-art multimodal reasoning model with real-time understanding and math capabilities.',
+    recommendedEndpoint: 'https://api.x.ai/v1',
+  },
+];
+
+const ENDPOINT_PRESETS = [
+  { name: 'OpenAI (Official)', url: 'https://api.openai.com/v1' },
+  { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+  { name: 'DeepSeek', url: 'https://api.deepseek.com/v1' },
+  { name: 'Groq', url: 'https://api.groq.com/openai/v1' },
+  { name: 'Ollama (Local)', url: 'http://localhost:11434/v1' },
+  { name: 'LM Studio (Local)', url: 'http://localhost:1234/v1' },
+  { name: 'xAI', url: 'https://api.x.ai/v1' },
 ];
 
 export function SettingsView({
@@ -115,6 +308,9 @@ export function SettingsView({
       ? state.settings.openaiModel || ''
       : '',
   );
+  const [modelCategory, setModelCategory] = useState<
+    'all' | 'openai' | 'anthropic' | 'deepseek' | 'google' | 'opensource' | 'xai'
+  >('all');
 
   // Codex CLI detection state
   const [codexStatus, setCodexStatus] = useState<CodexCliStatus | null>(null);
@@ -524,8 +720,34 @@ export function SettingsView({
               {/* MODEL SELECTOR */}
               <div className="form-group">
                 <label className="form-label">Active Model</label>
+
+                {/* Model Category Filter */}
+                <div className="model-category-filter">
+                  {[
+                    { id: 'all', label: `All (${MODEL_PRESETS.length})` },
+                    { id: 'openai', label: 'OpenAI' },
+                    { id: 'anthropic', label: 'Anthropic Claude' },
+                    { id: 'deepseek', label: 'DeepSeek' },
+                    { id: 'google', label: 'Google Gemini' },
+                    { id: 'opensource', label: 'Open Weights' },
+                    { id: 'xai', label: 'xAI' },
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={`model-category-btn ${modelCategory === cat.id ? 'active' : ''}`}
+                      onClick={() => setModelCategory(cat.id as typeof modelCategory)}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="model-cards-grid">
-                  {MODEL_PRESETS.map((m) => {
+                  {MODEL_PRESETS.filter(
+                    (m) =>
+                      modelCategory === 'all' || m.category === modelCategory,
+                  ).map((m) => {
                     const isSelected = !isCustomModel && openaiModel === m.id;
                     return (
                       <div
@@ -594,10 +816,28 @@ export function SettingsView({
                     onChange={(e) => setOpenaiBaseUrl(e.target.value)}
                   />
                 </div>
+                <div className="endpoint-presets">
+                  <span className="endpoint-presets-label">
+                    Quick Select Provider Endpoint:
+                  </span>
+                  <div className="endpoint-preset-pills">
+                    {ENDPOINT_PRESETS.map((ep) => {
+                      const isActive = openaiBaseUrl.trim() === ep.url;
+                      return (
+                        <button
+                          key={ep.url}
+                          type="button"
+                          className={`endpoint-preset-btn ${isActive ? 'active' : ''}`}
+                          onClick={() => setOpenaiBaseUrl(ep.url)}
+                        >
+                          {ep.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <p className="form-hint">
-                  Default: <code>https://api.openai.com/v1</code>. You can point
-                  this to local Ollama (<code>http://localhost:11434/v1</code>),
-                  OpenRouter, or Azure.
+                  Default: <code>https://api.openai.com/v1</code>. Seamlessly connects to OpenRouter, DeepSeek, Groq, Ollama, or local LM Studio.
                 </p>
               </div>
 
