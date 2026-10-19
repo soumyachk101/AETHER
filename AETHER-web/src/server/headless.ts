@@ -61,10 +61,11 @@ export async function runThreadTurn(
   signal.addEventListener('abort', stop, { once: true });
   try {
     signal.throwIfAborted();
+    const source = metadata?.aetherSource ?? metadata?.opendotsSource;
     const idPrefix =
-      metadata?.opendotsSource === 'voice_receipt'
+      source === 'voice_receipt'
         ? voiceReceiptMessagePrefix
-        : metadata?.opendotsSource === 'scheduled_task'
+        : source === 'scheduled_task'
           ? scheduledTaskMessagePrefix
           : '';
     agent.addMessage({
