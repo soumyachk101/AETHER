@@ -138,8 +138,13 @@ fn wait_for(url: String, mut owned: Option<OwnedServer>) -> Result<(String, Opti
     Err(format!("Timed out waiting for OpenDots at {url}. See the AETHER server log."))
 }
 
-pub fn stop(server: Option<&mut OwnedServer>) {
-    if let Some(server) = server { let _ = server.child.kill(); let _ = server.child.wait(); log("Stopped the OpenDots child process"); }
+pub fn stop(server: &mut Option<OwnedServer>) {
+    if let Some(s) = server.as_mut() {
+        let _ = s.child.kill();
+        let _ = s.child.wait();
+        log("Stopped the OpenDots child process");
+    }
+    *server = None;
 }
 
 pub fn check_exit(server: &mut Option<OwnedServer>) -> Option<String> {
