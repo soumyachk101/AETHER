@@ -80,6 +80,7 @@ cargo run --release
 - [Telemetry & Privacy Settings](docs/SETUP-TELEMETRY.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Accessibility Statement](ACCESSIBILITY.md)
 - [Security Policy](SECURITY.md)
 - [Support & Help](SUPPORT.md)
 - [Changelog](CHANGELOG.md)
