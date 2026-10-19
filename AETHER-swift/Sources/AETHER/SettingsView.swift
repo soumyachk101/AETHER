@@ -8,7 +8,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("OpenDots project") {
+            Section("AETHER project") {
                 TextField("Folder", text: $rootPath)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: rootPath) { _ in save() }
@@ -114,7 +114,7 @@ struct SettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose OpenDots"
+        panel.prompt = "Choose AETHER"
         if !rootPath.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: rootPath, isDirectory: true)
         }

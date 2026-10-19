@@ -78,7 +78,7 @@ final class ServerController: ObservableObject {
     init() {
         let logBase = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs", isDirectory: true)
-        let logDirectory = logBase.appendingPathComponent("dibi AETHER", isDirectory: true)
+        let logDirectory = logBase.appendingPathComponent("AETHER", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: logDirectory,
             withIntermediateDirectories: true
@@ -115,8 +115,8 @@ final class ServerController: ObservableObject {
     var statusText: String {
         switch phase {
         case .idle: return "Starting…"
-        case .locating: return "Finding your OpenDots project…"
-        case .building: return "Building OpenDots…"
+        case .locating: return "Finding your AETHER project…"
+        case .building: return "Building AETHER…"
         case .starting: return "Starting the local server…"
         case .ready: return "Connected"
         case .failed(let message): return message
@@ -164,13 +164,13 @@ final class ServerController: ObservableObject {
         phase = .locating
 
         guard let url = configuredServerURL else {
-            fail("The OpenDots server address is invalid.")
+            fail("The AETHER server address is invalid.")
             return
         }
 
         let root = Self.locateRoot()
         rootURL = root
-        if let root { appendLog("OpenDots project: \(root.path)\n") }
+        if let root { appendLog("AETHER project: \(root.path)\n") }
 
         if await isHealthy(url) {
             appendLog("Attached to the server already running at \(url.absoluteString)\n")
@@ -179,17 +179,17 @@ final class ServerController: ObservableObject {
         }
 
         if isAttachOnly {
-            appendLog("Waiting for an external OpenDots server at \(url.absoluteString)…\n")
+            appendLog("Waiting for an external AETHER server at \(url.absoluteString)…\n")
             if await waitForHealth(url, seconds: 20) {
                 markReady(url)
             } else {
-                fail("No server answered at \(url.absoluteString). Start OpenDots first, or clear AETHER_URL.")
+                fail("No server answered at \(url.absoluteString). Start AETHER first, or clear AETHER_URL.")
             }
             return
         }
 
         guard let root else {
-            fail("Could not find the OpenDots project. Open Settings and choose the folder that contains package.json.")
+            fail("Could not find the AETHER project. Open Settings and choose the folder that contains package.json.")
             return
         }
 
@@ -203,7 +203,7 @@ final class ServerController: ObservableObject {
         let entry = root.appendingPathComponent("dist/server/server/index.js")
         if !FileManager.default.fileExists(atPath: entry.path) {
             phase = .building
-            appendLog("Building the OpenDots client and server…\n")
+            appendLog("Building the AETHER client and server…\n")
             do {
                 try await runShell("exec npm run build", root: root)
             } catch {
@@ -217,7 +217,7 @@ final class ServerController: ObservableObject {
         }
 
         phase = .starting
-        appendLog("Starting OpenDots on 127.0.0.1:\(port)…\n")
+        appendLog("Starting AETHER on 127.0.0.1:\(port)…\n")
         do {
             try launchServer(root: root)
         } catch {
@@ -228,7 +228,7 @@ final class ServerController: ObservableObject {
         if await waitForHealth(url, seconds: 120) {
             markReady(url)
         } else if phase.failedMessage == nil {
-            fail("OpenDots did not become ready. Check the server log for details.")
+            fail("AETHER did not become ready. Check the server log for details.")
         }
     }
 
@@ -306,9 +306,9 @@ final class ServerController: ObservableObject {
                 self.processBox.replace(with: nil)
                 let code = finished.terminationStatus
                 if self.phase.isReady {
-                    self.fail("OpenDots stopped unexpectedly (exit code \(code)). See the server log.")
+                    self.fail("AETHER stopped unexpectedly (exit code \(code)). See the server log.")
                 } else if self.phase.isBusy {
-                    self.fail("OpenDots exited while starting (exit code \(code)). See the server log.")
+                    self.fail("AETHER exited while starting (exit code \(code)). See the server log.")
                 }
             }
         }
@@ -459,6 +459,7 @@ final class ServerController: ObservableObject {
               let data = try? Data(contentsOf: package),
               let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return false }
-        return manifest["name"] as? String == "opendots"
+        let name = manifest["name"] as? String
+        return name == "aether" || name == "opendots"
     }
 }
