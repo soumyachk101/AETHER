@@ -157,32 +157,81 @@ struct LaunchView: View {
     }
 }
 
+func loadAetherLogo() -> NSImage? {
+    #if SWIFT_PACKAGE
+    if let url = Bundle.module.url(forResource: "logo", withExtension: "png"),
+       let image = NSImage(contentsOf: url) {
+        return image
+    }
+    #endif
+
+    if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+       let image = NSImage(contentsOf: url) {
+        return image
+    }
+    if let image = NSImage(named: "logo") {
+        return image
+    }
+
+    if let root = ServerController.locateRoot() {
+        let parent = root.deletingLastPathComponent()
+        let paths = [
+            parent.appendingPathComponent("image.png"),
+            root.appendingPathComponent("image.png"),
+            parent.appendingPathComponent("AETHER-web/public/logo.png"),
+            root.appendingPathComponent("public/logo.png"),
+            parent.appendingPathComponent("AETHER-swift/Sources/AETHER/Resources/logo.png")
+        ]
+        for path in paths {
+            if FileManager.default.fileExists(atPath: path.path),
+               let image = NSImage(contentsOf: path) {
+                return image
+            }
+        }
+    }
+    return nil
+}
+
 struct AetherMark: View {
     var size: CGFloat = 64
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.45, green: 0.36, blue: 1.0),
-                            Color(red: 0.24, green: 0.78, blue: 0.94)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        Group {
+            if let logo = loadAetherLogo() {
+                Image(nsImage: logo)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.24), lineWidth: 1)
                     )
-                )
-                .overlay(
+            } else {
+                ZStack {
                     RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                        .strokeBorder(.white.opacity(0.22))
-                )
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.45, green: 0.36, blue: 1.0),
+                                    Color(red: 0.24, green: 0.78, blue: 0.94)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                                .strokeBorder(.white.opacity(0.22))
+                        )
 
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.white)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: size * 0.42, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: size, height: size)
+            }
         }
-        .frame(width: size, height: size)
         .shadow(color: .black.opacity(0.38), radius: size * 0.18, y: size * 0.09)
     }
 }
