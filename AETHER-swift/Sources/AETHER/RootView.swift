@@ -52,6 +52,7 @@ struct RootView: View {
     @StateObject private var voice = VoiceClient()
     @State private var section: WorkspaceSection = .home
     @State private var selectedThread = ""
+    @State private var voiceThreadID = ""
     @State private var selectedDot = ""
     @State private var search = ""
     @State private var draft = ""
@@ -106,6 +107,12 @@ struct RootView: View {
                         HStack { Text(section.rawValue).font(.system(size: 24, weight: .semibold, design: .rounded)); Spacer(); Button { Task { await data.refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
                             .padding(.horizontal, 28).padding(.vertical, 18)
                         Divider()
+                        if (data.state["settings"] as? [String: Any])?["paused"] as? Bool == true {
+                            Text("All Dots are paused. Active compute stops and scheduled tasks wait.")
+                                .font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 28).padding(.vertical, 10)
+                                .background(.orange.opacity(0.12))
+                        }
                         screen.padding(26)
                     }.background(Color(nsColor: .windowBackgroundColor))
                 }
@@ -117,6 +124,22 @@ struct RootView: View {
             await data.load(server)
             if pageSpace.isEmpty, let firstSpace = data.rows("spaces", from: data.workspace).first {
                 pageSpace = data.str(firstSpace, "id")
+            }
+        }
+        .onChange(of: voice.status) { status in
+            if status == "idle", !voiceThreadID.isEmpty {
+                voiceThreadID = ""
+                Task { await data.refresh() }
+            }
+        }
+        .onChange(of: selectedThread) { threadID in
+            if !voiceThreadID.isEmpty, threadID != voiceThreadID, voice.status != "idle" {
+                Task { await voice.end() }
+            }
+        }
+        .onChange(of: section) { nextSection in
+            if nextSection != .conversations, voice.status != "idle" {
+                Task { await voice.end() }
             }
         }
         .alert("AETHER", isPresented: Binding(get: { data.alert != nil }, set: { if !$0 { data.alert = nil } })) { Button("OK") {} } message: { Text(data.alert ?? "") }
@@ -225,17 +248,26 @@ struct RootView: View {
             }
         }
     }
-    private func send() { let text = composer; composer = ""; Task { if let base = data.base { await chat.send(text, dotId: selectedDot, threadId: selectedThread, baseURL: base, token: data.token) } } }
+    private func send() {
+        let text = composer
+        composer = ""
+        Task {
+            if let base = data.base,
+               await chat.send(text, dotId: selectedDot, threadId: selectedThread, baseURL: base, token: data.token) {
+                await data.refresh()
+            }
+        }
+    }
     private var voiceControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(voice.status == "idle" ? "Start voice call" : voice.status == "ending" ? "Ending…" : "End call") {
-                    if voice.status == "idle" { Task { if let base = data.base { await voice.start(threadId: selectedThread, baseURL: base, token: data.token, anchorMessageId: chat.messages.last(where: { $0.role == "user" || $0.role == "assistant" })?.id) } } }
+                    if voice.status == "idle" { voiceThreadID = selectedThread; Task { if let base = data.base { await voice.start(threadId: selectedThread, baseURL: base, token: data.token, anchorMessageId: chat.messages.last(where: { $0.role == "user" || $0.role == "assistant" })?.id) } } }
                     else { Task { await voice.end() } }
                 }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty || voice.status == "ending")
                 if voice.status != "idle" {
-                    Button(voice.muted ? "Unmute mic" : "Mute mic", systemImage: voice.muted ? "mic.slash" : "mic") { voice.toggleMute() }
-                    Button(voice.speakerMuted ? "Enable speaker" : "Mute speaker", systemImage: voice.speakerMuted ? "speaker.slash" : "speaker.wave.2") { voice.toggleSpeaker() }
+                    Button(voice.muted ? "Unmute mic" : "Mute mic", systemImage: voice.muted ? "mic.slash" : "mic") { voice.toggleMute() }.disabled(voice.status != "active")
+                    Button(voice.speakerMuted ? "Enable speaker" : "Mute speaker", systemImage: voice.speakerMuted ? "speaker.slash" : "speaker.wave.2") { voice.toggleSpeaker() }.disabled(voice.status != "active")
                     Text(voice.status == "active" ? "\(voice.phase.capitalized) · \(voice.elapsed / 60):\(String(format: "%02d", voice.elapsed % 60))" : "Connecting…").font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -317,7 +349,11 @@ struct RootView: View {
                 let task = taskDetail["task"] as? [String: Any] ?? [:]
                 HStack {
                     let active = ["running", "queued"].contains(data.str(task, "status"))
-                    Button(active ? "Pause task" : (data.str(task, "status") == "interrupted" ? "Retry after review" : "Run again")) { Task { await taskAction(task, active ? "pause" : "run") } }.disabled(!active && ((data.state["settings"] as? [String: Any])?["paused"] as? Bool == true))
+                    let status = data.str(task, "status")
+                    let paused = (data.state["settings"] as? [String: Any])?["paused"] as? Bool == true
+                    let researchAllowed = (data.state["settings"] as? [String: Any])?["researchAllowed"] as? Bool ?? false
+                    let runLabel = status == "interrupted" ? "Retry after review" : status == "failed" ? "Retry task" : status == "paused" ? "Resume task" : "Run again"
+                    Button(active ? "Pause task" : runLabel) { Task { await taskAction(task, active ? "pause" : "run") } }.disabled(!active && (paused || !researchAllowed))
                     if (task["intervalSeconds"] as? Int ?? 0) > 0 && data.str(task, "status") == "completed" { Button("Pause schedule") { Task { await taskAction(task, "pause") } } }
                     Button((task["intervalSeconds"] as? Int ?? 0) > 0 ? "Edit schedule" : "Set a schedule") { Task { await editTaskSchedule(task) } }
                     if data.str(task, "status") != "cancelled" { Button("Cancel", role: .destructive) { Task { await taskAction(task, "cancel") } } }
@@ -335,7 +371,11 @@ struct RootView: View {
         let current = task["intervalSeconds"] as? Int ?? 0
         let alert = NSAlert(); alert.messageText = "Repeat interval in minutes"; alert.informativeText = "Enter 0 to remove the schedule."; alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
         let input = NSTextField(string: String(current / 60)); input.frame = NSRect(x: 0, y: 0, width: 220, height: 24); alert.accessoryView = input
-        guard alert.runModal() == .alertFirstButtonReturn, let minutes = Double(input.stringValue), minutes >= 0 else { return }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let minutes = Double(input.stringValue), minutes.isFinite, minutes >= 0 else {
+            data.alert = "Enter a valid number of minutes."
+            return
+        }
         do { _ = try await data.send("/api/tasks/\(data.str(task, "id"))/schedule", method: "PUT", body: ["intervalSeconds": minutes == 0 ? NSNull() : NSNumber(value: Int((minutes * 60).rounded()))]); taskDetail = try await data.get("/api/tasks/\(data.str(task, "id"))"); await data.refresh() }
         catch { data.alert = error.localizedDescription }
     }
@@ -435,7 +475,7 @@ struct RootView: View {
         guard let base = data.base else { return }
         do {
             if tool == "review_space_page" {
-                var payload = args; payload["toolCallId"] = message.id
+                var payload = args; payload["toolCallId"] = message.toolCallId ?? message.id
                 let saved = try await chat.api("/api/conversations/\(selectedThread)/reviewed-page", method:"POST", body:payload, baseURL:base, token:data.token)
                 updateTool(message.id, result:"Page saved: \(data.str(saved,"title")) (\(data.str(saved,"id")))"); await data.refresh()
             } else {
@@ -446,7 +486,7 @@ struct RootView: View {
                     approvalPreview = "Exact stored arguments:\n" + String(data: try JSONSerialization.data(withJSONObject: approval["arguments"] ?? [:], options:.prettyPrinted), encoding:.utf8)!
                     return
                 }
-                let result = try await chat.api("/api/conversations/\(selectedThread)/connection-actions", method:"POST", body:["toolCallId":message.id,"approvalId":approvalId], baseURL:base, token:data.token)
+                let result = try await chat.api("/api/conversations/\(selectedThread)/connection-actions", method:"POST", body:["toolCallId":message.toolCallId ?? message.id,"approvalId":approvalId], baseURL:base, token:data.token)
                 updateTool(message.id, result:String(describing:result))
             }
         } catch { data.alert = error.localizedDescription }
