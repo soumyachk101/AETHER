@@ -9,6 +9,9 @@ import { Runner } from './runner.js';
 import { configured, type Config } from './research.js';
 import type { Platform } from './platform.js';
 import { VoiceService } from './voice.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { detectCodexCli } from './codex-detector.js';
 import { workspaceRoutes } from './workspace-routes.js';
 const interval = z.number().int().min(60).max(31_536_000).nullable();
 export interface AppOptions {
@@ -183,6 +186,74 @@ export function createApp({
     const task = store.schedule(c.req.param('id'), parsed.data.intervalSeconds);
     return task ? c.json(task) : c.json({ error: 'Task not found.' }, 404);
   });
+  app.get('/api/codex-cli', (c) => c.json(detectCodexCli()));
+
+  app.post('/api/settings/test-connection', async (c) => {
+    const body = ((await c.req.json().catch(() => ({}))) || {}) as {
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    };
+    const current = store.settings();
+    const apiKey = (
+      body.apiKey?.trim() ||
+      current.openaiApiKey ||
+      process.env.OPENAI_API_KEY ||
+      ''
+    ).trim();
+    const baseUrl = (
+      body.baseUrl?.trim() ||
+      current.openaiBaseUrl ||
+      process.env.OPENAI_BASE_URL ||
+      'https://api.openai.com/v1'
+    ).replace(/\/+$/, '');
+    const model = (
+      body.model?.trim() ||
+      current.openaiModel ||
+      process.env.OPENAI_MODEL ||
+      'gpt-4o'
+    ).trim();
+
+    if (!apiKey) {
+      return c.json(
+        { ok: false, error: 'Enter an OpenAI API Key to test connection.' },
+        400,
+      );
+    }
+
+    const start = Date.now();
+    try {
+      const res = await fetch(`${baseUrl}/models`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      const latency = Date.now() - start;
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        const msg =
+          errJson?.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+        return c.json({ ok: false, error: msg, latency });
+      }
+      return c.json({
+        ok: true,
+        latency,
+        message: `Successfully connected to OpenAI (${latency}ms)! Model "${model}" is ready.`,
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Connection failed to reach API';
+      return c.json({
+        ok: false,
+        error: message,
+        latency: Date.now() - start,
+      });
+    }
+  });
+
   app.patch('/api/settings', async (c) => {
     const parsed = z
       .object({
@@ -191,12 +262,75 @@ export function createApp({
         researchAllowed: z.boolean().optional(),
         memoryAllowed: z.boolean().optional(),
         appsAllowed: z.boolean().optional(),
+        openaiApiKey: z.string().trim().optional(),
+        openaiModel: z.string().trim().optional(),
+        openaiBaseUrl: z.string().trim().optional(),
+        intelligenceApiKey: z.string().trim().optional(),
+        providerMode: z.enum(['openai', 'codex']).optional(),
       })
       .strict()
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'Invalid settings.' }, 400);
     const previous = store.settings();
     const settings = store.updateSettings(parsed.data);
+
+    if (parsed.data.openaiApiKey !== undefined) {
+      if (platform) platform.config.apiKey = parsed.data.openaiApiKey;
+      config.apiKey = parsed.data.openaiApiKey;
+    }
+    if (parsed.data.openaiModel !== undefined) {
+      if (platform) platform.config.model = parsed.data.openaiModel;
+      config.model = parsed.data.openaiModel;
+    }
+    if (parsed.data.openaiBaseUrl !== undefined) {
+      if (platform) platform.config.baseUrl = parsed.data.openaiBaseUrl;
+      config.baseUrl = parsed.data.openaiBaseUrl;
+    }
+    if (parsed.data.intelligenceApiKey !== undefined && platform) {
+      platform.config.intelligenceKey = parsed.data.intelligenceApiKey;
+    }
+
+    try {
+      const envPath = path.resolve(process.cwd(), '.env');
+      let envContent = fs.existsSync(envPath)
+        ? fs.readFileSync(envPath, 'utf8')
+        : '';
+      const updateEnvVar = (content: string, key: string, val?: string) => {
+        if (val === undefined) return content;
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(content)) {
+          return content.replace(regex, `${key}=${val}`);
+        }
+        return content
+          ? `${content.trimEnd()}\n${key}=${val}\n`
+          : `${key}=${val}\n`;
+      };
+      if (parsed.data.openaiApiKey !== undefined) {
+        envContent = updateEnvVar(
+          envContent,
+          'OPENAI_API_KEY',
+          parsed.data.openaiApiKey,
+        );
+      }
+      if (parsed.data.openaiModel !== undefined) {
+        envContent = updateEnvVar(
+          envContent,
+          'OPENAI_MODEL',
+          parsed.data.openaiModel,
+        );
+      }
+      if (parsed.data.openaiBaseUrl !== undefined) {
+        envContent = updateEnvVar(
+          envContent,
+          'OPENAI_BASE_URL',
+          parsed.data.openaiBaseUrl,
+        );
+      }
+      fs.writeFileSync(envPath, envContent, 'utf8');
+    } catch {
+      // Non-critical if .env write fails in read-only environment
+    }
+
     if (
       settings.paused ||
       !settings.researchAllowed ||
