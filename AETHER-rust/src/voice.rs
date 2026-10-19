@@ -59,6 +59,7 @@ struct VoiceCall {
     input: AudioInput,
     _output: AudioOutput,
     mic_muted: Arc<AtomicBool>,
+    #[allow(dead_code)]
     started: Instant,
     transcript: Vec<String>,
     anchor: Option<String>,

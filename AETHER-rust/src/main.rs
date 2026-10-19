@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, io::{BufRead, BufReader}, sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex}, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum Screen { Home, Dots, Conversations, Spaces, Activity, Memories, Settings, Computer }
 
 struct NativeApp {
@@ -527,6 +528,7 @@ impl NativeApp {
     }
 }
 
+#[allow(dead_code)]
 fn decode_base64(input:&str)->Result<Vec<u8>,String>{ use std::process::{Command,Stdio}; use std::io::Write; let mut child=Command::new("base64").arg("-d").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().map_err(|e|e.to_string())?; child.stdin.take().ok_or("stdin")?.write_all(input.as_bytes()).map_err(|e|e.to_string())?; let out=child.wait_with_output().map_err(|e|e.to_string())?; if out.status.success(){Ok(out.stdout)}else{Err("invalid base64".into())}}
 
 fn ui_computer_actions(app: &mut NativeApp, ui: &mut egui::Ui) {
