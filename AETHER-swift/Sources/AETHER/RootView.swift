@@ -157,6 +157,7 @@ struct LaunchView: View {
     }
 }
 
+@MainActor
 func loadAetherLogo() -> NSImage? {
     #if SWIFT_PACKAGE
     if let url = Bundle.module.url(forResource: "logo", withExtension: "png"),
