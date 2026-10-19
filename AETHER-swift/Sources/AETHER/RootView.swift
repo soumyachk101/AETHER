@@ -104,7 +104,22 @@ struct RootView: View {
                     .padding(10).frame(minWidth: 220).background(Color(nsColor: .controlBackgroundColor))
                 } detail: {
                     VStack(spacing: 0) {
-                        HStack { Text(section.rawValue).font(.system(size: 24, weight: .semibold, design: .rounded)); Spacer(); Button { Task { await data.refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
+                        HStack {
+                            Text(section.rawValue).font(.system(size: 24, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Button {
+                                Task {
+                                    do {
+                                        _ = try await data.send("/api/settings", method: "PATCH", body: ["paused": !allDotsPaused])
+                                        await data.refresh()
+                                    } catch { data.alert = error.localizedDescription }
+                                }
+                            } label: {
+                                Label(allDotsPaused ? "Resume" : "Pause", systemImage: allDotsPaused ? "play.fill" : "pause.fill")
+                            }
+                            .help(allDotsPaused ? "Resume all Dots" : "Pause all Dots")
+                            Button { Task { await data.refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("Refresh")
+                        }
                             .padding(.horizontal, 28).padding(.vertical, 18)
                         Divider()
                         if (data.state["settings"] as? [String: Any])?["paused"] as? Bool == true {
@@ -157,6 +172,9 @@ struct RootView: View {
         case .computer: computerView
         case .settings: settings
         }
+    }
+    private var allDotsPaused: Bool {
+        (data.state["settings"] as? [String: Any])?["paused"] as? Bool == true
     }
     private var home: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -243,12 +261,13 @@ struct RootView: View {
                         else { HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } }
                     } } }
                     if let error = chat.error { Text(error).foregroundStyle(.red).font(.caption) }
-                    HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }; Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || composer.isEmpty) }
+                    HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }.disabled(allDotsPaused); Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || composer.isEmpty || allDotsPaused) }
                 }
             }
         }
     }
     private func send() {
+        guard !allDotsPaused else { return }
         let text = composer
         composer = ""
         Task {
