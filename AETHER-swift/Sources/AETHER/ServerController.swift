@@ -88,7 +88,7 @@ final class ServerController: ObservableObject {
             FileManager.default.createFile(atPath: serverLogURL.path, contents: nil)
         }
         logHandle = try? FileHandle(forWritingTo: serverLogURL)
-        try? logHandle?.seekToEnd()
+        _ = try? logHandle?.seekToEnd()
 
         let box = processBox
         terminationObserver = NotificationCenter.default.addObserver(
