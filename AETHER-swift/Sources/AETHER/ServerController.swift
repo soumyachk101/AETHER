@@ -163,18 +163,14 @@ final class ServerController: ObservableObject {
         logs = ""
         phase = .locating
 
-        guard let root = Self.locateRoot() else {
-            fail("Could not find the OpenDots project. Open Settings and choose the folder that contains package.json.")
-            return
-        }
-        rootURL = root
-
         guard let url = configuredServerURL else {
             fail("The OpenDots server address is invalid.")
             return
         }
 
-        appendLog("OpenDots project: \(root.path)\n")
+        let root = Self.locateRoot()
+        rootURL = root
+        if let root { appendLog("OpenDots project: \(root.path)\n") }
 
         if await isHealthy(url) {
             appendLog("Attached to the server already running at \(url.absoluteString)\n")
@@ -189,6 +185,11 @@ final class ServerController: ObservableObject {
             } else {
                 fail("No server answered at \(url.absoluteString). Start OpenDots first, or clear AETHER_URL.")
             }
+            return
+        }
+
+        guard let root else {
+            fail("Could not find the OpenDots project. Open Settings and choose the folder that contains package.json.")
             return
         }
 
@@ -373,7 +374,8 @@ final class ServerController: ObservableObject {
     }
 
     private func isHealthy(_ url: URL) async -> Bool {
-        var request = URLRequest(url: url)
+        guard let apiURL = URL(string: "/api/state", relativeTo: url) else { return false }
+        var request = URLRequest(url: apiURL)
         request.timeoutInterval = 2
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
