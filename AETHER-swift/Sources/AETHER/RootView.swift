@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import Combine
+import AppKit
 
 private enum WorkspaceSection: String, CaseIterable, Identifiable {
     case home = "Home", dots = "Dots", conversations = "Conversations", pages = "Spaces & Pages", tasks = "Scheduled & Activity", memories = "Memories", connections = "Connected services", computer = "Computer", settings = "Settings"
@@ -70,6 +71,15 @@ struct RootView: View {
     @State private var memoryText = ""
     @State private var editingMemoryID = ""
     @State private var editingMemoryText = ""
+    @State private var computerURL = "https://example.com"
+    @State private var computerPath = ""
+    @State private var computerCommand = ""
+    @State private var computerText = ""
+    @State private var computerOutput = ""
+    @State private var computerTab = "Browser"
+    @State private var computerScreen: [String: Any] = [:]
+    @State private var approvalPreviewID = ""
+    @State private var approvalPreview = ""
 
     var body: some View {
         Group {
@@ -201,7 +211,10 @@ struct RootView: View {
                 if selectedThread.isEmpty { emptyState("Choose a conversation", icon: "bubble.left.and.bubble.right", detail: "Start a conversation with one of your Dots.") }
                 else {
                     if chat.messages.isEmpty { emptyState("No messages in this session", icon: "text.bubble", detail: "This native client keeps the current session in memory. The server does not expose conversation transcript history.") }
-                    ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } } } }
+                    ScrollView { LazyVStack(alignment: .leading, spacing: 10) { ForEach(chat.messages) { m in
+                        if let tool = m.tool { toolCard(m, tool: tool) }
+                        else { HStack { if m.role == "assistant" { Text(m.text).frame(maxWidth: .infinity, alignment: .leading) } else { Spacer(); Text(m.text).padding(11).background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)) } } }
+                    } } }
                     if let error = chat.error { Text(error).foregroundStyle(.red).font(.caption) }
                     HStack { TextField("Message your Dot…", text: $composer, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onSubmit { send() }; Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(chat.sending || composer.isEmpty) }
                 }
@@ -311,13 +324,60 @@ struct RootView: View {
             HStack { Text("Computer: \(data.str(data.computer,"state").replacingOccurrences(of:"_", with:" "))"); Spacer(); Button("Refresh") { Task { await loadComputer() } }; Button("Start") { Task { await computerAction("start") } }; Button("Stop") { Task { await computerAction("stop") } } }
             if data.computer["configured"] as? Bool == false { emptyState("Computer service not configured", icon:"desktopcomputer", detail:"Configure the server’s computer service URL and token, then restart the server.") }
             Form { Toggle("Enable computer", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["enabled"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("enabled", v) } })); Toggle("Browser", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["browser"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("browser", v) } })); Toggle("Files", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["files"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("files", v) } })); Toggle("Terminal", isOn: Binding(get:{ (data.computer["permissions"] as? [String:Any])?["shell"] as? Bool ?? false }, set:{ v in Task { await setComputerPermission("shell", v) } })) }.formStyle(.grouped)
-            Text("Computer actions can be managed through chat when enabled. Human screen control and live browser interaction are not implemented in this client.").font(.caption).foregroundStyle(.secondary)
-            Spacer()
+            HStack { ForEach(["Browser", "Files", "Terminal", "Activity"], id: \.self) { tab in Button(tab) { computerTab = tab }.buttonStyle(computerTab == tab ? .borderedProminent : .bordered) } }
+            if computerTab == "Browser" {
+                HStack { TextField("https://example.com", text: $computerURL); Button("Navigate") { Task { await computerDo("navigate", ["url":computerURL]) } }.disabled(!computerAllowed("browser") || !botOwnsComputer) }
+                if let encoded = computerScreen["base64"] as? String, let bytes = Data(base64Encoded: encoded), let image = NSImage(data: bytes) { Image(nsImage: image).resizable().aspectRatio(contentMode:.fit).frame(maxHeight:360); Text(data.str(computerScreen,"url")).font(.caption).foregroundStyle(.secondary) }
+                HStack { Button(botOwnsComputer ? "Take control" : "Return control") { Task { await computerPost(botOwnsComputer ? "take" : "release") } }.disabled(!computerAllowed("browser")); Button("Click center") { Task { await computerDo("human_click", ["x":400,"y":300]) } }.disabled(botOwnsComputer || !computerAllowed("browser")) }
+                HStack { TextField("Text to type", text: $computerText); Button("Type") { Task { await computerDo("human_type", ["text":computerText]) } }.disabled(botOwnsComputer || !computerAllowed("browser") || computerText.isEmpty); Button("Enter") { Task { await computerDo("human_key", ["key":"Enter"]) } }.disabled(botOwnsComputer || !computerAllowed("browser")) }
+            } else if computerTab == "Files" { TextField("Relative path", text: $computerPath); HStack { Button("List") { Task { await computerDo("files_list", ["path":computerPath], show:true) } }; Button("Read") { Task { await computerDo("files_read", ["path":computerPath], show:true) } }; Button("Save") { Task { await computerDo("files_write", ["path":computerPath,"contents":computerOutput], show:true) } }.disabled(!computerAllowed("files")) }; TextEditor(text: $computerOutput).frame(minHeight:100)
+            } else if computerTab == "Terminal" { TextField("Command", text: $computerCommand); Button("Run") { Task { await computerDo("exec", ["command":computerCommand,"timeoutMs":30000], show:true) } }.disabled(!computerAllowed("shell") || computerCommand.isEmpty); TextEditor(text: $computerOutput).frame(minHeight:100)
+            } else { ForEach(Array(((data.computer["audit"] as? [[String:Any]]) ?? []).suffix(20).reversed().enumerated()), id:\.offset) { _, item in Text("\(data.str(item,"action")) · \(data.str(item,"actor")) · \(data.str(item,"outcome"))") } }
+            Text("Owner controls are required for direct browser input.").font(.caption).foregroundStyle(.secondary)
         }.task { await loadComputer() }.onChange(of: selectedDot) { _ in Task { await loadComputer() } }
     }
-    private func loadComputer() async { guard !selectedDot.isEmpty else { return }; do { data.computer = try await data.get("/api/dots/\(selectedDot)/computer") } catch { data.alert = error.localizedDescription } }
+    private func loadComputer() async { guard !selectedDot.isEmpty else { return }; do { data.computer = try await data.get("/api/dots/\(selectedDot)/computer"); if computerAllowed("browser") { computerScreen = try await data.send("/api/dots/\(selectedDot)/computer/actions", body:["action":"screenshot","input":[:]]) } else { computerScreen = [:] } } catch { computerScreen = [:]; data.alert = error.localizedDescription } }
     private func computerAction(_ action: String) async { do { data.computer = try await data.send("/api/dots/\(selectedDot)/computer/\(action)"); } catch { data.alert = error.localizedDescription } }
     private func setComputerPermission(_ key: String, _ value: Bool) async { do { data.computer = try await data.send("/api/dots/\(selectedDot)/computer/permissions", method:"PATCH", body:[key:value]) } catch { data.alert = error.localizedDescription } }
+    private var botOwnsComputer: Bool { ((data.computer["control"] as? [String:Any])?["holder"] as? String ?? "bot") == "bot" }
+    private func computerAllowed(_ permission: String) -> Bool { guard let p = data.computer["permissions"] as? [String:Any] else { return false }; return p["enabled"] as? Bool == true && p[permission] as? Bool == true && data.computer["state"] as? String == "running" }
+    private func computerPost(_ endpoint: String) async { do { data.computer = try await data.send("/api/dots/\(selectedDot)/computer/\(endpoint)"); await loadComputer() } catch { data.alert = error.localizedDescription } }
+    private func computerDo(_ action: String, _ input: [String:Any], show: Bool = false) async { let permission = action.hasPrefix("files_") ? "files" : (action == "exec" ? "shell" : "browser"); guard computerAllowed(permission) else { data.alert = "Enable the required computer permission and start the computer first."; return }; do { let result = try await data.send("/api/dots/\(selectedDot)/computer/actions", body:["action":action,"input":input]); if show { computerOutput = String(describing: result) }; await loadComputer() } catch { data.alert = error.localizedDescription } }
+    @ViewBuilder private func toolCard(_ message: ChatMessage, tool: String) -> some View {
+        let args = message.arguments?.mapValues { $0.value } ?? [:]
+        VStack(alignment: .leading, spacing: 8) {
+            Text(tool).font(.headline)
+            Text((args["summary"] as? String) ?? (args["title"] as? String) ?? "Tool request")
+            if let content = args["content"] as? String { Text(content).lineLimit(12) }
+            if tool == "request_connection_action", !approvalPreview.isEmpty, approvalPreviewID == message.id { Text(approvalPreview).font(.caption).textSelection(.enabled) }
+            if let result = message.result { Text(result).textSelection(.enabled) }
+            if tool == "review_space_page" || tool == "request_connection_action" {
+                HStack { Button("Approve") { Task { await approveTool(message, tool: tool, args: args) } }.buttonStyle(.borderedProminent).disabled(message.result != nil); Button("Decline") { updateTool(message.id, result:"Declined by owner") }.disabled(message.result != nil) }
+            }
+        }.padding(12).frame(maxWidth:.infinity, alignment:.leading).background(.blue.opacity(0.06), in:RoundedRectangle(cornerRadius:12))
+    }
+    private func updateTool(_ id: String, result: String) { if let i = chat.messages.firstIndex(where:{$0.id == id}) { chat.messages[i].result = result } }
+    private func approveTool(_ message: ChatMessage, tool: String, args: [String:Any]) async {
+        guard let base = data.base else { return }
+        do {
+            if tool == "review_space_page" {
+                var payload = args; payload["toolCallId"] = message.id
+                let saved = try await chat.api("/api/conversations/\(selectedThread)/reviewed-page", method:"POST", body:payload, baseURL:base, token:data.token)
+                updateTool(message.id, result:"Page saved: \(data.str(saved,"title")) (\(data.str(saved,"id")))"); await data.refresh()
+            } else {
+                guard let approvalId = args["approvalId"] as? String else { throw NSError(domain:"AETHER",code:1,userInfo:[NSLocalizedDescriptionKey:"Missing approval ID."]) }
+                if approvalPreviewID != message.id {
+                    let approval = try await chat.api("/api/conversations/\(selectedThread)/connection-approvals/\(approvalId)", baseURL:base, token:data.token)
+                    approvalPreviewID = message.id
+                    approvalPreview = "Exact stored arguments:\n" + String(data: try JSONSerialization.data(withJSONObject: approval["arguments"] ?? [:], options:.prettyPrinted), encoding:.utf8)!
+                    return
+                }
+                let result = try await chat.api("/api/conversations/\(selectedThread)/connection-actions", method:"POST", body:["toolCallId":message.id,"approvalId":approvalId], baseURL:base, token:data.token)
+                updateTool(message.id, result:String(describing:result))
+            }
+        } catch { data.alert = error.localizedDescription }
+    }
+
 }
 
 private struct LaunchView: View {
