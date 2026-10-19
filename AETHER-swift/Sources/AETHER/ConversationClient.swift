@@ -9,6 +9,7 @@ struct ChatMessage: Identifiable, Codable {
     var arguments: [String: AnyCodable]? = nil
     var result: String? = nil
     var rawToolArguments = ""
+    var toolCallId: String? = nil
 }
 
 struct AnyCodable: Codable { let value: Any
@@ -25,6 +26,7 @@ final class ConversationClient: ObservableObject {
 
     func send(_ text: String, dotId: String, threadId: String, baseURL: URL, token: String?) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !sending else { return }
         messages.append(ChatMessage(role: "user", text: text))
         let assistant = ChatMessage(role: "assistant", text: "")
         messages.append(assistant)
@@ -43,6 +45,7 @@ final class ConversationClient: ObservableObject {
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let history = messages.dropLast().filter { $0.role == "user" || $0.role == "assistant" }.map { ["id": $0.id, "role": $0.role, "content": $0.text] as [String: Any] }
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "agentId": dotId,
             "threadId": threadId,
             "runId": UUID().uuidString,
             "state": NSNull(),
@@ -53,51 +56,77 @@ final class ConversationClient: ObservableObject {
         ])
         do {
             let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
-            var eventType = "", payload = ""
+            guard let http = response as? HTTPURLResponse else { throw NSError(domain: "AETHER", code: 1, userInfo: [NSLocalizedDescriptionKey: "The runtime returned an invalid response."]) }
+            guard (200..<300).contains(http.statusCode) else {
+                var body = Data()
+                for try await byte in bytes { body.append(byte) }
+                let responseObject = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+                let message = responseObject?["error"] as? String ?? responseObject?["message"] as? String
+                throw NSError(domain: "AETHER", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: message ?? "The runtime request failed (\(http.statusCode))."])
+            }
+            var eventType = "", dataLines: [String] = []
             for try await line in bytes.lines {
-                if line.hasPrefix("event:") { eventType = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
-                else if line.hasPrefix("data:") { payload += String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
-                else if line.isEmpty, !payload.isEmpty {
-                    if let data = payload.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        let type = (event["type"] as? String) ?? eventType
-                        let value = (event["delta"] as? String) ?? (event["content"] as? String) ?? ""
-                        if type.contains("TEXT_MESSAGE_CONTENT") || type.contains("text_message_content") {
-                            if let i = messages.lastIndex(where: { $0.id == assistant.id }) { messages[i].text += value }
-                        } else if type == "TOOL_CALL_START" || type == "tool_call_start" {
-                            let id = event["toolCallId"] as? String ?? ""
-                            let name = event["toolCallName"] as? String ?? event["toolName"] as? String ?? event["name"] as? String ?? ""
-                            if !id.isEmpty {
-                                if let i = messages.firstIndex(where: { $0.id == id }) {
-                                    if !name.isEmpty { messages[i].tool = name }
-                                } else {
-                                    messages.append(ChatMessage(id: id, role: "tool", text: "", tool: name.isEmpty ? nil : name))
-                                }
-                            }
-                        } else if type == "TOOL_CALL_ARGS" || type == "tool_call_args" {
-                            let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? ""
-                            let delta = event["delta"] as? String ?? ""
-                            if let i = messages.firstIndex(where: { $0.id == id }) {
-                                messages[i].rawToolArguments += delta
-                                if let data = messages[i].rawToolArguments.data(using: .utf8), let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { messages[i].arguments = args.mapValues(AnyCodable.init) }
-                            } else if !id.isEmpty {
-                                messages.append(ChatMessage(id: id, role: "tool", text: "", rawToolArguments: delta))
-                            }
-                        } else if type == "TOOL_CALL_END" || type == "tool_call_end" {
-                            let id = event["toolCallId"] as? String ?? ""
-                            if let i = messages.firstIndex(where: { $0.id == id }), let data = messages[i].rawToolArguments.data(using: .utf8), let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                messages[i].arguments = args.mapValues(AnyCodable.init)
-                            }
-                        } else if type == "TOOL_CALL_RESULT" || type == "tool_call_result" {
-                            let id = event["toolCallId"] as? String ?? event["toolCallID"] as? String ?? ""
-                            if let i = messages.firstIndex(where: { $0.id == id }) { messages[i].result = String(describing: event["content"] ?? event["result"] ?? "") }
-                        } else if type.contains("RUN_ERROR") || type.contains("RUN_FAILED") { error = event["message"] as? String ?? "The assistant run failed." }
-                    }
-                    eventType = ""; payload = ""
+                if line.isEmpty {
+                    consume(eventType: eventType, dataLines: dataLines, assistantId: assistant.id)
+                    eventType = ""; dataLines = []
+                } else if line.hasPrefix("event:") {
+                    eventType = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                } else if line.hasPrefix("data:") {
+                    let value = String(line.dropFirst(5))
+                    dataLines.append(value.hasPrefix(" ") ? String(value.dropFirst()) : value)
                 }
             }
-            if messages.last?.text.isEmpty == true && error == nil { error = "The run ended without a text response. Earlier messages are available only in this session." }
-        } catch { self.error = error.localizedDescription }
+            if !dataLines.isEmpty || !eventType.isEmpty {
+                self.error = "The runtime stream ended before the final event was complete."
+            } else if messages.first(where: { $0.id == assistant.id })?.text.isEmpty == true && error == nil {
+                self.error = "The current turn returned no response. Check the runtime connection and retry."
+            }
+        } catch {
+            if (error as? URLError)?.code != .cancelled {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func consume(eventType: String, dataLines: [String], assistantId: String) {
+        guard !dataLines.isEmpty,
+              let data = dataLines.joined(separator: "\n").data(using: .utf8),
+              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let type = (event["type"] as? String) ?? eventType
+        func string(_ key: String) -> String? { event[key] as? String }
+        func toolIndex(_ id: String?) -> Int? {
+            guard let id else { return nil }
+            return messages.firstIndex(where: { $0.toolCallId == id })
+        }
+        switch type {
+        case "TEXT_MESSAGE_START":
+            guard string("role") == "assistant", let id = string("messageId") else { return }
+            if !messages.contains(where: { $0.id == id }) { messages.append(ChatMessage(id: id, role: "assistant", text: "")) }
+        case "TEXT_MESSAGE_CONTENT":
+            guard let id = string("messageId"), let delta = string("delta"),
+                  let i = messages.firstIndex(where: { $0.id == id && $0.role == "assistant" }) else { return }
+            messages[i].text += delta
+        case "TOOL_CALL_START":
+            guard let id = string("toolCallId"), !id.isEmpty else { return }
+            if let i = toolIndex(id) { messages[i].tool = string("toolCallName") ?? messages[i].tool }
+            else { messages.append(ChatMessage(id: UUID().uuidString, role: "tool", text: "", tool: string("toolCallName"), toolCallId: id)) }
+        case "TOOL_CALL_ARGS":
+            guard let id = string("toolCallId"), let delta = string("delta"), let i = toolIndex(id) else { return }
+            messages[i].rawToolArguments += delta
+        case "TOOL_CALL_END":
+            guard let i = toolIndex(string("toolCallId")),
+                  let data = messages[i].rawToolArguments.data(using: .utf8),
+                  let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            messages[i].arguments = args.mapValues(AnyCodable.init)
+        case "TOOL_CALL_RESULT":
+            guard let i = toolIndex(string("toolCallId")) else { return }
+            if let content = event["content"] { messages[i].result = String(describing: content) }
+            else if let result = event["result"] { messages[i].result = String(describing: result) }
+        case "RUN_ERROR", "RUN_FAILED":
+            error = string("message") ?? "The assistant run failed."
+        default: break
+        }
+        _ = assistantId
     }
 
     func api(_ path: String, method: String = "GET", body: [String: Any]? = nil, baseURL: URL, token: String?) async throws -> [String: Any] {

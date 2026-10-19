@@ -69,6 +69,8 @@ struct RootView: View {
     @State private var dotAppsAllowed = false
     @State private var composer = ""
     @State private var taskPrompt = ""
+    @State private var taskSearch = ""
+    @State private var taskDetail: [String: Any] = [:]
     @State private var memoryText = ""
     @State private var editingMemoryID = ""
     @State private var editingMemoryText = ""
@@ -281,9 +283,62 @@ struct RootView: View {
     private func selectPage(_ page: [String: Any], space: [String: Any]) { pageId = data.str(page,"id"); pageSpace = data.str(space,"id"); pageTitle = data.str(page,"title"); pageContent = data.str(page,"content"); pageRevision = page["revision"] as? Int ?? 0 }
     private func savePage() async { do { if pageId.isEmpty { let result = try await data.send("/api/spaces/\(pageSpace)/pages", body: ["title":pageTitle,"content":pageContent]); pageId = data.str(result,"id"); pageRevision = result["revision"] as? Int ?? 1 } else { let result = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method: "PATCH", body: ["title":pageTitle,"content":pageContent,"expectedRevision":pageRevision]); pageRevision = result["revision"] as? Int ?? pageRevision + 1 }; await data.refresh() } catch { data.alert = error.localizedDescription } }
     private func deletePage() async { do { _ = try await data.send("/api/spaces/\(pageSpace)/pages/\(pageId)", method:"DELETE"); pageId = ""; pageTitle = ""; pageContent = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
-    private var tasks: some View { VStack(alignment: .leading, spacing: 12) { HStack { Picker("Conversation", selection: $selectedThread) { Text("Choose a conversation").tag(""); ForEach(Array(data.rows("conversations", from:data.workspace).enumerated()), id:\.offset) { _, thread in Text(data.str(thread,"title")).tag(data.str(thread,"id")) } }.frame(width:250); TextField("Task request", text: $taskPrompt); Button("Schedule") { Task { await createTask() } }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty) }; ForEach(Array(data.rows("tasks", from: data.state).enumerated()), id: \.offset) { _, task in HStack { VStack(alignment:.leading) { Text(data.str(task,"prompt")); Text(data.str(task,"status")).font(.caption).foregroundStyle(.secondary) }; Spacer(); ForEach(["run","pause","cancel"], id:\.self) { action in Button(action.capitalized) { Task { await taskAction(task, action) } }.controlSize(.small) } }.padding(12).background(.blue.opacity(0.05), in: RoundedRectangle(cornerRadius:10)) }; Spacer() } }
+    private var tasks: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("A little follow-through.").font(.title2)
+            Text("Scheduled turns run on the server in their original conversation.").foregroundStyle(.secondary)
+            HStack {
+                Picker("Conversation", selection: $selectedThread) {
+                    Text("Choose a conversation").tag("")
+                    ForEach(Array(data.rows("conversations", from: data.workspace).enumerated()), id: \.offset) { _, thread in
+                        Text(data.str(thread, "title")).tag(data.str(thread, "id"))
+                    }
+                }.frame(width: 250)
+                TextField("Task request", text: $taskPrompt)
+                Button("Schedule") { Task { await createTask() } }.buttonStyle(.borderedProminent).disabled(selectedThread.isEmpty || taskPrompt.isEmpty)
+            }
+            TextField("Find a task…", text: $taskSearch).textFieldStyle(.roundedBorder)
+            let visible = data.rows("tasks", from: data.state).filter { taskSearch.isEmpty || data.str($0, "prompt").localizedCaseInsensitiveContains(taskSearch) }
+            if visible.isEmpty {
+                emptyState("Let a thought come back around.", icon: "clock", detail: "Open a conversation and schedule a server-side task.")
+            } else {
+                List(visible.indices, id: \.self) { index in
+                    let task = visible[index]
+                    Button {
+                        Task { do { taskDetail = try await data.get("/api/tasks/\(data.str(task, "id"))") } catch { data.alert = error.localizedDescription } }
+                    } label: {
+                        HStack { Image(systemName: data.str(task, "status") == "completed" ? "checkmark.circle" : "bubble.left"); VStack(alignment: .leading) { Text(data.str(task, "prompt")).font(.headline); Text(data.str(task, "status").capitalized).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary) }.padding(6)
+                    }.buttonStyle(.plain)
+                }
+            }
+            if !taskDetail.isEmpty {
+                Divider()
+                Text(data.str(taskDetail["task"] as? [String: Any] ?? [:], "prompt")).font(.headline)
+                let task = taskDetail["task"] as? [String: Any] ?? [:]
+                HStack {
+                    let active = ["running", "queued"].contains(data.str(task, "status"))
+                    Button(active ? "Pause task" : (data.str(task, "status") == "interrupted" ? "Retry after review" : "Run again")) { Task { await taskAction(task, active ? "pause" : "run") } }.disabled(!active && ((data.state["settings"] as? [String: Any])?["paused"] as? Bool == true))
+                    if (task["intervalSeconds"] as? Int ?? 0) > 0 && data.str(task, "status") == "completed" { Button("Pause schedule") { Task { await taskAction(task, "pause") } } }
+                    Button((task["intervalSeconds"] as? Int ?? 0) > 0 ? "Edit schedule" : "Set a schedule") { Task { await editTaskSchedule(task) } }
+                    if data.str(task, "status") != "cancelled" { Button("Cancel", role: .destructive) { Task { await taskAction(task, "cancel") } } }
+                }
+                if !data.str(task, "error").isEmpty { Text(data.str(task, "error")).foregroundStyle(.red) }
+                ForEach(Array(data.rows("events", from: taskDetail).suffix(6).enumerated()), id: \.offset) { _, event in Text(data.str(event, "text")).font(.caption).foregroundStyle(.secondary) }
+                Text("\(data.rows("runs", from: taskDetail).count) saved runs").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
     private func createTask() async { guard !selectedThread.isEmpty else { data.alert = "Select a conversation for this scheduled task."; return }; do { _ = try await data.send("/api/tasks", body:["prompt":taskPrompt,"threadId":selectedThread]); taskPrompt = ""; await data.refresh() } catch { data.alert = error.localizedDescription } }
-    private func taskAction(_ task:[String:Any], _ action:String) async { do { _ = try await data.send("/api/tasks/\(data.str(task,"id"))/actions", body:["action":action]); await data.refresh() } catch { data.alert = error.localizedDescription } }
+    private func taskAction(_ task:[String:Any], _ action:String) async { do { _ = try await data.send("/api/tasks/\(data.str(task,"id"))/actions", body:["action":action]); await data.refresh(); taskDetail = try await data.get("/api/tasks/\(data.str(task,"id"))") } catch { data.alert = error.localizedDescription } }
+    private func editTaskSchedule(_ task: [String: Any]) async {
+        let current = task["intervalSeconds"] as? Int ?? 0
+        let alert = NSAlert(); alert.messageText = "Repeat interval in minutes"; alert.informativeText = "Enter 0 to remove the schedule."; alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+        let input = NSTextField(string: String(current / 60)); input.frame = NSRect(x: 0, y: 0, width: 220, height: 24); alert.accessoryView = input
+        guard alert.runModal() == .alertFirstButtonReturn, let minutes = Double(input.stringValue), minutes >= 0 else { return }
+        do { _ = try await data.send("/api/tasks/\(data.str(task, "id"))/schedule", method: "PUT", body: ["intervalSeconds": minutes == 0 ? NSNull() : NSNumber(value: Int((minutes * 60).rounded()))]); taskDetail = try await data.get("/api/tasks/\(data.str(task, "id"))"); await data.refresh() }
+        catch { data.alert = error.localizedDescription }
+    }
     private var memories: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {

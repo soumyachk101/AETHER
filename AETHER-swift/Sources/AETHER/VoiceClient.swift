@@ -28,9 +28,13 @@ final class VoiceClient: NSObject, ObservableObject {
     private var limitTask: Task<Void, Never>?
     private var durationTask: Task<Void, Never>?
     private var disconnectTask: Task<Void, Never>?
+    private var starting = false
+    private var ending = false
 
     func start(threadId: String, baseURL: URL, token: String?, anchorMessageId: String?) async {
-        guard status == "idle" else { return }
+        guard status == "idle", !starting, !ending else { return }
+        starting = true
+        defer { starting = false }
         self.baseURL = baseURL; self.token = token; self.anchorMessageId = anchorMessageId
         status = "connecting"; error = nil; muted = false; speakerMuted = false
         phase = "listening"; caption = ""; userCaption = ""; transcript = []; elapsed = 0
@@ -69,6 +73,7 @@ final class VoiceClient: NSObject, ObservableObject {
                     }
                 }
             }
+            guard status == "connecting", !ending else { return }
             pollTask = Task { await pollStatus() }
             limitTask = Task { try? await Task.sleep(for: .seconds(900)); if !Task.isCancelled { await end() } }
         } catch {
@@ -82,14 +87,15 @@ final class VoiceClient: NSObject, ObservableObject {
     func toggleSpeaker() { speakerMuted.toggle(); remoteAudioTrack?.isEnabled = !speakerMuted }
 
     func end() async {
-        guard status != "idle", status != "ending" else { return }
+        guard !ending, status != "idle" else { return }
+        ending = true
         status = "ending"; pollTask?.cancel(); limitTask?.cancel(); durationTask?.cancel(); disconnectTask?.cancel()
         audioTrack?.isEnabled = false
         if let id = callId {
             do { try await finishCall(id: id) }
             catch { self.error = "Call ended, but its receipt could not be saved: \(error.localizedDescription)" }
         }
-        cleanup(); status = "idle"
+        cleanup(); status = "idle"; ending = false; starting = false
     }
 
     private func finishCall(id: String) async throws {
@@ -99,8 +105,8 @@ final class VoiceClient: NSObject, ObservableObject {
     private func pollStatus() async {
         var failures = 0
         while !Task.isCancelled, status == "connecting" || status == "active" {
-            try? await Task.sleep(for: .seconds(2)); guard let id = callId else { continue }
-            do { let value = try await api("/api/voice/calls/\(id)"); failures = 0; if value["endedAt"] is Int && !(value["endedAt"] is NSNull) { await end(); return } }
+            try? await Task.sleep(for: .seconds(2)); guard !Task.isCancelled, let id = callId else { continue }
+            do { let value = try await api("/api/voice/calls/\(id)"); failures = 0; if let endedAt = value["endedAt"], !(endedAt is NSNull) { await end(); return } }
             catch { failures += 1; if failures >= 3 { self.error = "Call control connection was lost."; await end(); return } }
         }
     }
@@ -121,6 +127,7 @@ final class VoiceClient: NSObject, ObservableObject {
         pollTask?.cancel(); limitTask?.cancel(); durationTask?.cancel(); disconnectTask?.cancel()
         channel?.delegate = nil; channel?.close(); peer?.close()
         channel = nil; peer = nil; factory = nil; audioTrack = nil; remoteAudioTrack = nil; callId = nil
+        transcript = []
     }
 
     private func receive(_ text: String) {
@@ -129,7 +136,8 @@ final class VoiceClient: NSObject, ObservableObject {
         case "input_audio_buffer.speech_started": phase = "listening"; caption = ""
         case "response.created": phase = "thinking"; caption = ""
         case "output_audio_buffer.stopped": phase = "listening"
-        case "response.output_audio_transcript.delta": phase = "speaking"; caption += event["delta"] as? String ?? ""
+        case "response.output_audio_transcript.delta":
+            if let delta = event["delta"] as? String { phase = "speaking"; caption += delta }
         case "conversation.item.input_audio_transcription.completed":
             if let value = event["transcript"] as? String { transcript.append("You: \(value)"); userCaption = value }
         case "response.output_audio_transcript.done": if let value = event["transcript"] as? String { transcript.append("Dot: \(value)") }
@@ -144,9 +152,12 @@ final class VoiceClient: NSObject, ObservableObject {
               let arguments = event["arguments"] as? String, let bytes = arguments.data(using: .utf8),
               let args = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any], let request = args["request"] as? String else { return }
         phase = "thinking"; var output = ""
-        do { output = try await api("/api/voice/calls/\(id)/compute", method: "POST", body: ["toolCallId": call, "request": request, "transcript": String(transcript.joined(separator: "\n").suffix(12000))])["text"] as? String ?? "" }
+        do {
+            let result = try await api("/api/voice/calls/\(id)/compute", method: "POST", body: ["toolCallId": call, "request": request, "transcript": String(transcript.joined(separator: "\n").suffix(12000))])
+            output = result["text"] as? String ?? ""
+        }
         catch { output = "Compute failed: \(error.localizedDescription)" }
-        guard let channel, channel.readyState == .open else { return }
+        guard !ending, let channel, channel.readyState == .open else { return }
         for value in [["type":"conversation.item.create", "item":["type":"function_call_output", "call_id":call, "output":output]], ["type":"response.create"]] {
             if let data = try? JSONSerialization.data(withJSONObject: value) { channel.sendData(RTCDataBuffer(data: data, isBinary: false)) }
         }
@@ -165,6 +176,7 @@ extension VoiceClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         Task { @MainActor in
+            guard status != "ending", status != "idle" else { return }
             if newState == .connected { disconnectTask?.cancel(); disconnectTask = nil; status = "active"; if durationTask == nil { durationTask = Task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(1)); elapsed += 1 } } }; if let callId { _ = try? await api("/api/voice/calls/\(callId)/active", method: "POST", body: [:]) } }
             if newState == .disconnected {
                 disconnectTask?.cancel(); disconnectTask = Task { try? await Task.sleep(for: .seconds(5)); if !Task.isCancelled { error = "The voice connection dropped."; await end() } }
@@ -178,6 +190,7 @@ extension VoiceClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) { Task { @MainActor in channel = dataChannel; dataChannel.delegate = self } }
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange state: RTCPeerConnectionState) {
         Task { @MainActor in
+            guard status != "ending", status != "idle" else { return }
             if state == .connected { status = "active"; if let callId { _ = try? await api("/api/voice/calls/\(callId)/active", method: "POST", body: [:]) } }
             if state == .failed { error = "The voice connection dropped."; await end() }
         }
