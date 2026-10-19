@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -102,7 +103,6 @@ struct RootView: View {
                     .disabled(client.loading)
                 Button("Restart Server") { Task { await server.restart() } }
             }
-            if !client.token.isEmpty { EmptyView() }
             GroupBox("Owner access token") {
                 SecureField("Bearer token (if required)", text: $client.token)
                     .textFieldStyle(.roundedBorder)
@@ -122,7 +122,7 @@ struct RootView: View {
             if client.loading && client.tasks.isEmpty { ProgressView("Loading OpenDots…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if client.tasks.isEmpty { ContentUnavailableView("No requests yet", systemImage: "tray", description: Text("Add a request above to create a task.")) }
             else {
-                List(client.tasks, id: \.id) { task in
+                List(Array(client.tasks.enumerated()), id: \.offset) { _, task in
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(task["prompt"] as? String ?? "Request").lineLimit(3)
