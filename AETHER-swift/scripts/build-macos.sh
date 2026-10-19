@@ -17,6 +17,7 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 
 cp "$BIN" "$OUT/Contents/MacOS/AETHER"
 chmod +x "$OUT/Contents/MacOS/AETHER"
+cp "$ROOT/Sources/AETHER/Resources/logo.png" "$OUT/Contents/Resources/logo.png" || true
 
 sed "s/__VERSION__/$VERSION/g" "$ROOT/Packaging/Info.plist" \
     > "$OUT/Contents/Info.plist"
